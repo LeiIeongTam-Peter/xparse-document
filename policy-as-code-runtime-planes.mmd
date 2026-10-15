@@ -1,0 +1,73 @@
+%% Policy-as-Code + Runtime Policy Planes — Xparse Architecture
+%% Source:  ADR-191, PRD-156, SPEC-168
+%% Drives:  PR #571 (docs/adr-191-policy-as-code-runtime-planes)
+%% Date:    2026-05-27
+
+flowchart LR
+  %% ─────────────── Authoring & Sync ───────────────
+  subgraph A["📝 Authoring · CI/CD"]
+    YAML["policies/*.yaml<br/>system · editions · plugins · sites"]
+  end
+  Sync["sync_policies --apply<br/>idempotent · hash-verified · fail-fast"]
+  YAML --> Sync
+
+  %% ─────────────── Storage (DB = runtime source of truth) ───────────────
+  subgraph DB["🗄️ IAM DB · runtime source of truth"]
+    Bundle["PolicyBundle<br/>immutable · versioned content"]
+    Assign["PolicyAssignment<br/>target_scope_type / id<br/>precedence · status · effective window"]
+    Bundle -. bound by .- Assign
+  end
+  Sync --> Bundle
+  Sync --> Assign
+
+  Console["🖥️ Console<br/>gitops baseline = read-only<br/>overrides = audited assignment"]
+  Console -- overrides only --> Assign
+
+  %% ─────────────── Five policy planes ───────────────
+  subgraph P["⚙️ Five policy planes · each with its own enforcement owner"]
+    direction TB
+    LLM["LLMOperationalPolicy<br/>rate · guardrail · quota · model access"]
+    DRP["DeploymentRuntimePolicy<br/>image · privilege · volumes · caps"]
+    REP["RuntimeEgressPolicy<br/>deny_all · internal · allowlist · hard-deny 169.254.169.254"]
+    SAP["SidecarAccessPolicy<br/>path · method · WS · upload/download"]
+    DHP["DataHandlingPolicy<br/>persistence · export · clipboard · PII"]
+  end
+  Assign --> LLM
+  Assign --> DRP
+  Assign --> REP
+  Assign --> SAP
+  Assign --> DHP
+
+  %% ─────────────── LLM live enforcement (snapshot path) ───────────────
+  subgraph Live["🔥 LLM live path · INV-191-3 / INV-057-7"]
+    direction LR
+    Validate["IAM validate_api_key()<br/>resolver: Deployment&gt;App&gt;Group&gt;Tenant<br/>★ Deployment only if key carries deployment_uuid"]
+    Snap["Immutable validate snapshot"]
+    GW["Gateway admission + guardrail · LLM Proxy"]
+    Validate -. no re-resolve .-> Snap --> GW
+  end
+  LLM ==> Validate
+
+  %% ─────────────── Other enforcement owners ───────────────
+  Sched["Scheduler + Fleet"]
+  Agentd["agentd · network boundary<br/>egress proxy / firewall / DNS proxy"]
+  Ingress["Ingress + IAM verify-session<br/>sidecar nginx / envoy"]
+  AppData["sidecar + app adapter<br/>mount policy + audit"]
+
+  DRP ==> Sched --> Agentd
+  REP ==> Agentd
+  SAP ==> Ingress
+  DHP ==> AppData
+
+  %% ─────────────── Hard denies (cross-plane) ───────────────
+  Hard["⛔ Hard denies (any plane):<br/>cloud metadata · docker socket · host net · privileged"]
+  Agentd -. enforces .-> Hard
+
+  classDef plane fill:#eef,stroke:#446,color:#113
+  classDef enforce fill:#fee,stroke:#a33,color:#511
+  classDef store fill:#efe,stroke:#363,color:#131
+  classDef io fill:#ffe,stroke:#a83,color:#420
+  class LLM,DRP,REP,SAP,DHP plane
+  class Validate,Snap,GW,Sched,Agentd,Ingress,AppData enforce
+  class Bundle,Assign store
+  class YAML,Sync,Console,Hard io

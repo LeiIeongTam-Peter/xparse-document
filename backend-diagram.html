@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Xparse Backend Architecture</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: #0d1117;
+  color: #e2e8f0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, sans-serif;
+  padding: 32px 24px 48px;
+}
+
+h1 {
+  text-align: center;
+  font-size: 24px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #60a5fa 0%, #a78bfa 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 6px;
+  letter-spacing: -0.3px;
+}
+
+.subtitle {
+  text-align: center;
+  color: #475569;
+  font-size: 13px;
+  margin-bottom: 22px;
+}
+
+/* === LEGEND === */
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+  justify-content: center;
+  margin-bottom: 22px;
+  align-items: center;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.legend-dot {
+  width: 10px; height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.legend-sep {
+  font-size: 11px;
+  color: #475569;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 12px;
+  border-left: 1px solid #1e2737;
+  border-right: 1px solid #1e2737;
+}
+
+/* === DIAGRAM CONTAINER === */
+#diagram {
+  position: relative;
+  width: 1120px;
+  height: 762px;
+  margin: 0 auto;
+  background: #0b1120;
+  border-radius: 14px;
+  border: 1px solid #19243a;
+}
+
+svg#arrows {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+  z-index: 1;
+  overflow: visible;
+}
+
+/* === SERVICE CARDS === */
+.card {
+  position: absolute;
+  border-radius: 10px;
+  padding: 10px 13px 11px;
+  border: 1.5px solid transparent;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  z-index: 2;
+  cursor: default;
+  user-select: none;
+}
+
+.card:hover {
+  transform: translateY(-3px) scale(1.015);
+  box-shadow: 0 14px 40px rgba(0,0,0,0.65);
+  z-index: 50;
+}
+
+.card-name {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1px;
+  margin-bottom: 4px;
+  line-height: 1.2;
+}
+
+.card-desc {
+  font-size: 10.5px;
+  line-height: 1.48;
+  opacity: 0.68;
+}
+
+.card-meta {
+  margin-top: 5px;
+  font-size: 9px;
+  font-family: 'SF Mono', Consolas, monospace;
+  opacity: 0.4;
+  letter-spacing: 0.1px;
+}
+
+.tag {
+  display: inline-block;
+  margin-top: 5px;
+  padding: 2px 8px;
+  border-radius: 99px;
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+/* === LAYER COLOR THEMES === */
+
+/* Runtime — blue */
+.c-runtime {
+  background: linear-gradient(145deg, #091d3e, #0d2550);
+  border-color: #1c437a !important;
+}
+.c-runtime .tag { background: rgba(29,78,216,0.3); color: #93c5fd; border: 1px solid rgba(96,165,250,0.25); }
+
+/* Governance — violet */
+.c-gov {
+  background: linear-gradient(145deg, #130930, #180c3e);
+  border-color: #361b72 !important;
+}
+.c-gov .tag { background: rgba(109,40,217,0.3); color: #c4b5fd; border: 1px solid rgba(167,139,250,0.25); }
+
+/* Capacity — emerald */
+.c-cap {
+  background: linear-gradient(145deg, #091f14, #0c2618);
+  border-color: #174a2c !important;
+}
+.c-cap .tag { background: rgba(22,101,52,0.35); color: #86efac; border: 1px solid rgba(74,222,128,0.25); }
+
+/* Audit — teal */
+.c-audit {
+  background: linear-gradient(145deg, #05180f, #071e12);
+  border-color: #0d3d1e !important;
+}
+.c-audit .tag { background: rgba(20,83,45,0.35); color: #6ee7b7; border: 1px solid rgba(52,211,153,0.25); }
+
+/* Fleet / Agent Platform — amber */
+.c-fleet {
+  background: linear-gradient(145deg, #1e0f04, #271406);
+  border-color: #52300e !important;
+}
+.c-fleet .tag { background: rgba(146,64,14,0.35); color: #fcd34d; border: 1px solid rgba(251,191,36,0.25); }
+
+/* Library (in-process) — indigo */
+.c-lib {
+  background: linear-gradient(145deg, #0b0b22, #10102c);
+  border-color: #21215a !important;
+}
+.c-lib .tag { background: rgba(49,46,129,0.35); color: #a5b4fc; border: 1px solid rgba(129,140,248,0.25); }
+
+/* Monitor — rose */
+.c-monitor {
+  background: linear-gradient(145deg, #1e0909, #270c0c);
+  border-color: #521515 !important;
+}
+.c-monitor .tag { background: rgba(153,27,27,0.35); color: #fca5a5; border: 1px solid rgba(248,113,113,0.25); }
+
+/* Client */
+.c-client {
+  background: linear-gradient(145deg, #05181c, #071e23);
+  border-color: #103a40 !important;
+}
+
+/* === SSE BADGE === */
+.sse-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 5px;
+  font-size: 9px;
+  color: #fb923c;
+  opacity: 0.75;
+  font-family: 'SF Mono', Consolas, monospace;
+}
+
+/* === BOTTOM SECTION === */
+.flow-section {
+  max-width: 1120px;
+  margin: 22px auto 0;
+}
+
+.flow-section h2 {
+  font-size: 11px;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #19243a;
+}
+
+.steps-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+}
+
+.step {
+  background: #0b1120;
+  border: 1px solid #19243a;
+  border-radius: 10px;
+  padding: 11px 10px;
+  border-top: 2.5px solid;
+}
+
+.step-n { font-size: 8.5px; font-family: monospace; opacity: 0.38; margin-bottom: 5px; letter-spacing: 0.5px; }
+.step-t { font-size: 11.5px; font-weight: 600; margin-bottom: 5px; }
+.step-d { font-size: 10.5px; opacity: 0.6; line-height: 1.48; }
+</style>
+</head>
+<body>
+
+<h1>Xparse Backend Architecture</h1>
+<p class="subtitle">10 services · 4 layers · Every dependency mapped</p>
+
+<!-- LEGEND -->
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:#1c437a"></div>Runtime</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#361b72"></div>Governance</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#174a2c"></div>Capacity</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#0d3d1e"></div>Audit</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#52300e"></div>Fleet / Agent Platform</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#21215a"></div>Library (in-process)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#521515"></div>Monitor</div>
+  <div class="legend-sep">
+    <span>─── HTTP</span>
+    <span style="opacity:0.55">· · · Library / SDK</span>
+  </div>
+</div>
+
+<!-- MAIN DIAGRAM -->
+<div id="diagram">
+  <svg id="arrows"></svg>
+
+  <!-- ───── ROW 0 — CLIENT ───── -->
+  <div class="card c-client" id="n-client" style="left:385px;top:12px;width:280px;height:50px">
+    <div style="display:flex;align-items:center;gap:9px">
+      <span style="font-size:20px;line-height:1">🖥️</span>
+      <div>
+        <div class="card-name" style="margin-bottom:2px">CLIENT</div>
+        <div style="font-size:10px;opacity:0.45;font-family:monospace">POST /v1/chat/completions</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ───── ROW 1 — BUSTREAM + WARDEN ───── -->
+  <div class="card c-runtime" id="n-bustream" style="left:118px;top:88px;width:706px;height:98px">
+    <div class="card-name">⚡ bustream — Gateway &amp; Streaming Engine</div>
+    <div class="card-desc">Every AI request enters here. Handles auth → policy → capacity → routing → SSE streaming → audit. The single runtime brain — no request bypasses this layer.</div>
+    <div class="card-meta">:8000 · FastAPI + asyncio</div>
+    <span class="tag">Runtime Core</span>
+    <span class="sse-badge">SSE: FAST → LARGE → REVERSE → DONE</span>
+  </div>
+
+  <div class="card c-monitor" id="n-warden" style="left:870px;top:88px;width:218px;height:98px">
+    <div class="card-name">🛡️ xparse_warden</div>
+    <div class="card-desc">Periodically pings /health on every service. Detects container drift. Exports Prometheus metrics for Grafana.</div>
+    <div class="card-meta">CLI daemon · Prometheus exporter</div>
+    <span class="tag">Monitor</span>
+  </div>
+
+  <!-- ───── ROW 2 — IAM / RM / ROUTING / AUDIT ───── -->
+  <div class="card c-gov" id="n-iam" style="left:15px;top:255px;width:218px;height:108px">
+    <div class="card-name">🔐 xparse_iam</div>
+    <div class="card-desc">Who can use what and how much. Manages the full governance tree:<br>Tenant → Group → App → API Key → Policy.</div>
+    <div class="card-meta">:8010 · Django Ninja · PostgreSQL</div>
+    <span class="tag">Governance</span>
+  </div>
+
+  <div class="card c-cap" id="n-rm" style="left:275px;top:255px;width:218px;height:108px">
+    <div class="card-name">🎫 xparse_resource_manager</div>
+    <div class="card-desc">Gateway must get a lease before hitting any provider. Priority queue — high-value tenants go first. TTL reaper cleans stale leases.</div>
+    <div class="card-meta">:8020 · FastAPI</div>
+    <span class="tag">Capacity Guard</span>
+  </div>
+
+  <div class="card c-lib" id="n-routing" style="left:535px;top:255px;width:218px;height:108px">
+    <div class="card-name">🗺️ xparse_routing</div>
+    <div class="card-desc">Picks which provider endpoint to call. 5 strategies: direct / cheapest / greenest / healthiest / twin (race two providers).</div>
+    <div class="card-meta">Library · in-process import</div>
+    <span class="tag">Routing Library</span>
+  </div>
+
+  <div class="card c-audit" id="n-audit" style="left:795px;top:255px;width:293px;height:108px">
+    <div class="card-name">📋 3rd/xparse_audit</div>
+    <div class="card-desc">Records every request as tamper-evident evidence. Chain of custody preserved for compliance, billing, and incident investigation.</div>
+    <div class="card-meta">:8030 · FastAPI · JSONL / S3 / Elasticsearch sink</div>
+    <span class="tag">Audit / Compliance</span>
+  </div>
+
+  <!-- ───── ROW 3 — FLEET + CONTAINER PLATFORM ───── -->
+  <div class="card c-fleet" id="n-fleet" style="left:268px;top:450px;width:370px;height:108px">
+    <div class="card-name">🚀 xparse_fleet</div>
+    <div class="card-desc">Control plane for all GPU nodes. Manages model deployments, model catalog, service registry, and Agent App services (NemoClaw, OpenWebUI). Reconciler keeps desired vs. actual state in sync.</div>
+    <div class="card-meta">:8090 · FastAPI</div>
+    <span class="tag">Fleet Control Plane</span>
+  </div>
+
+  <div class="card c-lib" id="n-container" style="left:692px;top:450px;width:396px;height:108px">
+    <div class="card-name">📦 xparse_container_platform</div>
+    <div class="card-desc">Shared library for Docker &amp; nsjail container operations. Clean Architecture (DDD) — swap Docker for K8s without touching any caller.</div>
+    <div class="card-meta">Library · in-process · DDD Clean Architecture</div>
+    <span class="tag">Container Library</span>
+  </div>
+
+  <!-- ───── ROW 4 — NODE MGR + SCHEDULER ───── -->
+  <div class="card c-fleet" id="n-nodemgr" style="left:15px;top:642px;width:235px;height:103px">
+    <div class="card-name">🤖 xparse_node_mgr</div>
+    <div class="card-desc">Daemon on every GPU machine. Sends heartbeat every 30 s, manages local containers, downloads models, runs validation benchmarks.</div>
+    <div class="card-meta">gRPC daemon · per-node (agentd)</div>
+    <span class="tag">Node Agent</span>
+  </div>
+
+  <div class="card c-fleet" id="n-scheduler" style="left:268px;top:642px;width:370px;height:103px">
+    <div class="card-name">📐 xparse_scheduler</div>
+    <div class="card-desc">Decides which GPU machine gets a new model deployment. Selects based on GPU type, VRAM, availability, and tenant quota from IAM. Bridges Fleet ↔ ResourceManager.</div>
+    <div class="card-meta">FastAPI</div>
+    <span class="tag">GPU Placement</span>
+  </div>
+
+</div>
+<!-- end #diagram -->
+
+<!-- REQUEST LIFECYCLE STEPS -->
+<div class="flow-section">
+  <h2>Request lifecycle — 7 steps every time you call the API</h2>
+  <div class="steps-grid">
+    <div class="step" style="border-top-color:#60a5fa">
+      <div class="step-n">STEP 1</div>
+      <div class="step-t">Identity Check</div>
+      <div class="step-d">bustream → IAM: "Is this API key valid?" IAM returns Application + Policy data.</div>
+    </div>
+    <div class="step" style="border-top-color:#a78bfa">
+      <div class="step-n">STEP 2</div>
+      <div class="step-t">Policy Decision</div>
+      <div class="step-d">Policy Kernel (pure function, zero I/O) decides: allow / deny, guardrails, rate limit.</div>
+    </div>
+    <div class="step" style="border-top-color:#4ade80">
+      <div class="step-n">STEP 3</div>
+      <div class="step-t">Capacity Ticket</div>
+      <div class="step-d">bustream acquires a lease from ResourceManager. Waits if provider is at max concurrent.</div>
+    </div>
+    <div class="step" style="border-top-color:#818cf8">
+      <div class="step-n">STEP 4</div>
+      <div class="step-t">Route Selection</div>
+      <div class="step-d">Routing library (in-process) picks the provider endpoint using the Application's strategy.</div>
+    </div>
+    <div class="step" style="border-top-color:#fb923c">
+      <div class="step-n">STEP 5</div>
+      <div class="step-t">SSE Streaming</div>
+      <div class="step-d">FAST preview → LARGE buffer → REVERSE replace → DONE. Tokens stream to client in real time.</div>
+    </div>
+    <div class="step" style="border-top-color:#34d399">
+      <div class="step-n">STEP 6</div>
+      <div class="step-t">Audit Record</div>
+      <div class="step-d">Audit SDK writes the full event async. Tamper-evident envelope, chain-of-custody intact.</div>
+    </div>
+    <div class="step" style="border-top-color:#fbbf24">
+      <div class="step-n">STEP 7</div>
+      <div class="step-t">Release Ticket</div>
+      <div class="step-d">bustream releases the capacity lease so the next waiting request in the queue proceeds.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const svg = document.getElementById('arrows');
+  const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+  svg.appendChild(defs);
+  let mkN = 0;
+
+  function mkArrow(color) {
+    const id = 'mk' + (++mkN);
+    const m = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+    m.setAttribute('id', id);
+    m.setAttribute('markerWidth', '7');
+    m.setAttribute('markerHeight', '6');
+    m.setAttribute('refX', '6.5');
+    m.setAttribute('refY', '3');
+    m.setAttribute('orient', 'auto');
+    const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    p.setAttribute('d', 'M 0 0 L 7 3 L 0 6 Z');
+    p.setAttribute('fill', color);
+    m.appendChild(p);
+    defs.appendChild(m);
+    return id;
+  }
+
+  function box(id) {
+    const el = document.getElementById(id);
+    const l = parseFloat(el.style.left);
+    const t = parseFloat(el.style.top);
+    const w = parseFloat(el.style.width);
+    const h = parseFloat(el.style.height);
+    return { l, t, w, h, cx: l + w / 2, cy: t + h / 2 };
+  }
+
+  function edge(from, to) {
+    const dx = to.cx - from.cx;
+    const dy = to.cy - from.cy;
+    const hw = from.w / 2;
+    const hh = from.h / 2;
+    if (!dx && !dy) return { x: from.cx, y: from.cy };
+    const sx = Math.abs(dx) > 0 ? hw / Math.abs(dx) : Infinity;
+    const sy = Math.abs(dy) > 0 ? hh / Math.abs(dy) : Infinity;
+    const s = Math.min(sx, sy) * 0.96;
+    return { x: from.cx + dx * s, y: from.cy + dy * s };
+  }
+
+  function draw(fromId, toId, opts) {
+    const F = box(fromId);
+    const T = box(toId);
+    const s = edge(F, T);
+    const e = edge(T, F);
+
+    const color   = opts.color   || '#475569';
+    const opacity = opts.opacity !== undefined ? opts.opacity : 0.72;
+    const dashed  = opts.dashed  || false;
+    const label   = opts.label   || '';
+    const cv      = opts.curve   || 0;
+    const width   = opts.width   || 1.5;
+
+    const mx = (s.x + e.x) / 2;
+    const my = (s.y + e.y) / 2;
+    let cpx = mx, cpy = my;
+
+    if (cv !== 0) {
+      const len = Math.hypot(e.x - s.x, e.y - s.y) || 1;
+      const nx = -(e.y - s.y) / len;
+      const ny =  (e.x - s.x) / len;
+      cpx = mx + nx * cv;
+      cpy = my + ny * cv;
+    }
+
+    const mkId = mkArrow(color);
+
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', `M ${s.x.toFixed(1)} ${s.y.toFixed(1)} Q ${cpx.toFixed(1)} ${cpy.toFixed(1)} ${e.x.toFixed(1)} ${e.y.toFixed(1)}`);
+    path.setAttribute('stroke', color);
+    path.setAttribute('stroke-width', String(width));
+    path.setAttribute('fill', 'none');
+    path.setAttribute('opacity', String(opacity));
+    path.setAttribute('marker-end', `url(#${mkId})`);
+    if (dashed) path.setAttribute('stroke-dasharray', '5,3.5');
+    svg.appendChild(path);
+
+    if (label) {
+      // Position label along the bezier curve at t~0.45
+      const t = 0.45;
+      const lx = (1-t)*(1-t)*s.x + 2*(1-t)*t*cpx + t*t*e.x;
+      const ly = (1-t)*(1-t)*s.y + 2*(1-t)*t*cpy + t*t*e.y;
+
+      // Small bg pill
+      const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      txt.setAttribute('x', lx.toFixed(1));
+      txt.setAttribute('y', (ly - 3).toFixed(1));
+      txt.setAttribute('text-anchor', 'middle');
+      txt.setAttribute('font-size', '9');
+      txt.setAttribute('font-family', '-apple-system, system-ui, sans-serif');
+      txt.setAttribute('fill', color);
+      txt.setAttribute('opacity', '0.88');
+      txt.textContent = label;
+      svg.appendChild(txt);
+    }
+  }
+
+  function init() {
+    // Remove everything except defs
+    Array.from(svg.childNodes).forEach(n => { if (n !== defs) svg.removeChild(n); });
+
+    // ── Client → bustream ──────────────────────────────────────────────────
+    draw('n-client',  'n-bustream', { color: '#60a5fa', width: 2.2, opacity: 0.9, label: 'POST /v1/chat' });
+
+    // ── bustream outgoing ──────────────────────────────────────────────────
+    draw('n-bustream', 'n-iam',       { color: '#a78bfa', curve:  28, label: '① validate'      });
+    draw('n-bustream', 'n-rm',        { color: '#4ade80', curve:   8, label: '③ acquire lease' });
+    draw('n-bustream', 'n-routing',   { color: '#818cf8', dashed: true, label: '④ route (lib)'  });
+    draw('n-bustream', 'n-audit',     { color: '#34d399', dashed: true, curve: -18, label: '⑥ emit (SDK)' });
+    draw('n-bustream', 'n-fleet',     { color: '#fb923c', curve:  42, label: 'poll model-profiles 30 s' });
+
+    // ── Warden health probes ───────────────────────────────────────────────
+    draw('n-warden', 'n-bustream', { color: '#f87171', dashed: true, curve: -14, opacity: 0.58, label: '/health' });
+    draw('n-warden', 'n-fleet',    { color: '#f87171', dashed: true, curve: -24, opacity: 0.22 });
+    draw('n-warden', 'n-iam',      { color: '#f87171', dashed: true, curve:  18, opacity: 0.16 });
+
+    // ── Fleet outgoing ─────────────────────────────────────────────────────
+    draw('n-fleet', 'n-iam',       { color: '#a78bfa', dashed: true, curve: -22, label: 'quota / policy'   });
+    draw('n-fleet', 'n-scheduler', { color: '#fcd34d', curve: 14,                label: 'placement req'    });
+    draw('n-fleet', 'n-container', { color: '#818cf8', dashed: true,             label: 'use lib'          });
+
+    // ── NodeMgr ↔ Fleet ────────────────────────────────────────────────────
+    draw('n-nodemgr', 'n-fleet',   { color: '#fbbf24', curve: -20, label: '♥ heartbeat 30 s'   });
+    draw('n-fleet',   'n-nodemgr', { color: '#fb923c', dashed: true, curve: 20, opacity: 0.45, label: 'commands' });
+
+    // ── NodeMgr → ContainerPlatform (lib) ─────────────────────────────────
+    draw('n-nodemgr', 'n-container', { color: '#818cf8', dashed: true, curve: -22, opacity: 0.48 });
+
+    // ── Scheduler ─────────────────────────────────────────────────────────
+    draw('n-scheduler', 'n-fleet', { color: '#fb923c', dashed: true, curve: -14, opacity: 0.45, label: 'capacity query' });
+    draw('n-scheduler', 'n-iam',   { color: '#a78bfa', dashed: true, curve:  28, label: 'quota check' });
+  }
+
+  if (document.readyState === 'loading') {
+    window.addEventListener('load', () => setTimeout(init, 80));
+  } else {
+    setTimeout(init, 80);
+  }
+})();
+</script>
+</body>
+</html>

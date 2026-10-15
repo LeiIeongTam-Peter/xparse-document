@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Xparse Platform — 服務架構總覽</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0d1117;color:#e6edf3;font-family:-apple-system,'Segoe UI',Roboto,sans-serif;min-height:100vh}
+.header{padding:28px 40px 20px;border-bottom:1px solid #21262d}
+.header h1{font-size:24px;font-weight:700;color:#f0f6fc;letter-spacing:-0.5px}
+.header p{margin-top:6px;color:#7d8590;font-size:14px}
+.badge{display:inline-block;margin-left:10px;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;vertical-align:middle}
+.tabs{display:flex;padding:0 40px;border-bottom:1px solid #21262d;background:#0d1117;position:sticky;top:0;z-index:100}
+.tab{padding:12px 20px;font-size:14px;color:#7d8590;cursor:pointer;border:none;background:none;border-bottom:2px solid transparent;transition:all .15s}
+.tab:hover{color:#e6edf3}
+.tab.active{color:#f78166;border-bottom-color:#f78166}
+.tab-content{display:none}
+.tab-content.active{display:block}
+.diagram-wrap{padding:20px 20px 10px;overflow-x:auto;background:#0d1117}
+#arch-svg{display:block}
+.legend{display:flex;flex-wrap:wrap;gap:16px;padding:12px 40px 20px;border-bottom:1px solid #21262d}
+.legend-item{display:flex;align-items:center;gap:7px;font-size:12px;color:#7d8590}
+.legend-dot{width:12px;height:12px;border-radius:3px;flex-shrink:0}
+.legend-line{width:28px;height:2px;flex-shrink:0}
+.services-section{padding:30px 40px}
+.section-title{font-size:16px;font-weight:600;color:#f0f6fc;margin-bottom:18px}
+.category-label{font-size:11px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:#7d8590;margin:24px 0 12px;padding-bottom:6px;border-bottom:1px solid #21262d}
+.cards-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px}
+.card{background:#161b22;border:1px solid #21262d;border-radius:10px;padding:18px;transition:border-color .15s}
+.card:hover{border-color:#30363d}
+.card-header{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.card-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.card-name{font-size:15px;font-weight:600;color:#f0f6fc}
+.card-port{margin-left:auto;font-size:11px;padding:2px 8px;background:#21262d;border-radius:10px;color:#7d8590;font-family:monospace}
+.card-type{font-size:11px;color:#7d8590;margin-bottom:10px}
+.card-desc{font-size:13px;color:#8b949e;line-height:1.6;margin-bottom:12px}
+.card-chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font-size:11px;padding:3px 8px;border-radius:10px;font-family:monospace}
+.chip-in{background:#0d2818;color:#3fb950;border:1px solid #1a4731}
+.chip-out{background:#1a1a2e;color:#79c0ff;border:1px solid #1a3a5c}
+.chip-lib{background:#1e1030;color:#bc8cff;border:1px solid #3b1f6b}
+.chips-label{font-size:11px;color:#7d8590;margin-top:8px;margin-bottom:4px}
+.conn-section{padding:30px 40px}
+.conn-table{width:100%;border-collapse:collapse;font-size:13px}
+.conn-table th{text-align:left;padding:10px 14px;background:#161b22;color:#7d8590;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid #21262d;position:sticky;top:53px}
+.conn-table td{padding:10px 14px;border-bottom:1px solid #161b22;vertical-align:top}
+.conn-table tr:hover td{background:#161b22}
+.src-tag{display:inline-block;padding:2px 8px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600}
+.proto-tag{display:inline-block;padding:1px 6px;border-radius:4px;font-size:11px;font-family:monospace;background:#21262d;color:#7d8590}
+.proto-rest{background:#0d2818;color:#3fb950}
+.proto-lib{background:#1e1030;color:#bc8cff}
+.proto-jsonl{background:#1a1a0d;color:#e3b341}
+.fail-fast{color:#f85149;font-size:11px}
+.fail-open{color:#3fb950;font-size:11px}
+.fail-soft{color:#e3b341;font-size:11px}
+.svc-node{cursor:pointer}
+.svc-node rect{transition:filter .2s}
+.svc-node:hover rect{filter:brightness(1.2)}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Xparse Platform <span class="badge" style="background:#0d2818;color:#3fb950;border:1px solid #1a4731">11 services</span></h1>
+  <p>服務職責、通訊協議與依賴關係總覽 — 點擊 Tab 切換視圖</p>
+</div>
+
+<div class="tabs">
+  <button class="tab active" onclick="showTab(event,'diagram')">架構圖</button>
+  <button class="tab" onclick="showTab(event,'services')">服務詳情</button>
+  <button class="tab" onclick="showTab(event,'connections')">通訊總表</button>
+</div>
+
+<!-- ==================== TAB 1: DIAGRAM ==================== -->
+<div id="tab-diagram" class="tab-content active">
+<div class="diagram-wrap">
+<svg id="arch-svg" viewBox="0 0 1320 900" xmlns="http://www.w3.org/2000/svg" width="1320" height="900">
+<defs>
+  <marker id="ah-g" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#3fb950"/></marker>
+  <marker id="ah-o" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#f0883e"/></marker>
+  <marker id="ah-p" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#bc8cff"/></marker>
+  <marker id="ah-gr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#7d8590"/></marker>
+  <marker id="ah-b" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#58a6ff"/></marker>
+</defs>
+
+<!-- Layer bands -->
+<rect x="0" y="34"  width="1320" height="52" fill="#13181f" rx="0"/>
+<rect x="0" y="118" width="1320" height="52" fill="#0d1117" rx="0"/>
+<rect x="0" y="212" width="1320" height="66" fill="#13181f" rx="0"/>
+<rect x="0" y="330" width="1320" height="66" fill="#0d1117" rx="0"/>
+<rect x="0" y="448" width="1320" height="68" fill="#13181f" rx="0"/>
+<rect x="0" y="568" width="1320" height="66" fill="#0d1117" rx="0"/>
+<rect x="0" y="686" width="1320" height="66" fill="#13181f" rx="0"/>
+<rect x="0" y="800" width="1320" height="74" fill="#0d1117" rx="0"/>
+
+<!-- Layer labels (left edge) -->
+<text x="18" y="67"  fill="#30363d" font-size="9" font-family="monospace" writing-mode="lr">用戶層</text>
+<text x="18" y="148" fill="#30363d" font-size="9" font-family="monospace">代理層</text>
+<text x="18" y="248" fill="#30363d" font-size="9" font-family="monospace">閘道層</text>
+<text x="18" y="368" fill="#30363d" font-size="9" font-family="monospace">IAM · 容量</text>
+<text x="18" y="486" fill="#30363d" font-size="9" font-family="monospace">路由 · 調度</text>
+<text x="18" y="604" fill="#30363d" font-size="9" font-family="monospace">節點編排</text>
+<text x="18" y="722" fill="#30363d" font-size="9" font-family="monospace">節點代理</text>
+<text x="18" y="840" fill="#30363d" font-size="9" font-family="monospace">運行時</text>
+
+<!-- ===== EDGES (behind nodes) ===== -->
+
+<!-- User → nginx -->
+<line x1="660" y1="87" x2="660" y2="118" stroke="#484f58" stroke-width="1.5" marker-end="url(#ah-gr)"/>
+
+<!-- nginx → Console App -->
+<path d="M 606,145 C 500,165 330,198 255,212" fill="none" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#ah-b)" stroke-dasharray="5,3"/>
+<text x="398" y="170" fill="#58a6ff" font-size="9" font-family="monospace" text-anchor="middle">static files</text>
+
+<!-- nginx → bustream -->
+<path d="M 655,170 C 655,185 662,198 662,212" fill="none" stroke="#3fb950" stroke-width="2" marker-end="url(#ah-g)"/>
+<text x="685" y="196" fill="#3fb950" font-size="9" font-family="monospace">/v1/* /v2/*</text>
+
+<!-- nginx → IAM -->
+<path d="M 625,170 C 580,195 430,305 370,330" fill="none" stroke="#3fb950" stroke-width="1.5" marker-end="url(#ah-g)"/>
+<text x="480" y="245" fill="#3fb950" font-size="9" font-family="monospace">/iam/*</text>
+
+<!-- nginx → audit -->
+<path d="M 710,162 C 820,178 1010,205 1060,212" fill="none" stroke="#3fb950" stroke-width="1.5" marker-end="url(#ah-g)"/>
+<text x="898" y="181" fill="#3fb950" font-size="9" font-family="monospace">/audit/*</text>
+
+<!-- bustream → IAM -->
+<path d="M 600,248 C 545,278 440,315 400,330" fill="none" stroke="#f0883e" stroke-width="2" marker-end="url(#ah-o)"/>
+<text x="478" y="286" fill="#f0883e" font-size="9" font-family="monospace" text-anchor="middle">gateway-validate</text>
+
+<!-- bustream → resource_mgr -->
+<path d="M 740,248 C 780,278 820,312 840,330" fill="none" stroke="#f0883e" stroke-width="1.8" marker-end="url(#ah-o)"/>
+<text x="810" y="288" fill="#f0883e" font-size="9" font-family="monospace">acquire/release</text>
+
+<!-- bustream → audit (same row, arc above) -->
+<path d="M 770,232 C 880,215 990,218 1050,228" fill="none" stroke="#7d8590" stroke-width="1.5" marker-end="url(#ah-gr)" stroke-dasharray="5,3"/>
+<text x="906" y="208" fill="#7d8590" font-size="9" font-family="monospace" text-anchor="middle">SDK + JSONL 審計</text>
+
+<!-- bustream → routing lib -->
+<path d="M 640,278 C 615,360 575,420 555,448" fill="none" stroke="#bc8cff" stroke-width="1.5" marker-end="url(#ah-p)" stroke-dasharray="4,3"/>
+<text x="584" y="368" fill="#bc8cff" font-size="9" font-family="monospace">in-process</text>
+
+<!-- bustream → NeMo -->
+<path d="M 762,255 C 840,295 890,415 906,448" fill="none" stroke="#f0883e" stroke-width="1.5" marker-end="url(#ah-o)"/>
+<text x="866" y="358" fill="#f0883e" font-size="9" font-family="monospace">guardrail</text>
+
+<!-- bustream → Redis -->
+<path d="M 764,248 C 900,248 1020,320 1060,330" fill="none" stroke="#f0883e" stroke-width="1.5" marker-end="url(#ah-o)"/>
+<text x="930" y="272" fill="#f0883e" font-size="9" font-family="monospace">queue/quota</text>
+
+<!-- bustream → LLM -->
+<path d="M 770,262 C 980,270 1110,395 1170,448" fill="none" stroke="#f0883e" stroke-width="2" marker-end="url(#ah-o)"/>
+<text x="1020" y="340" fill="#f0883e" font-size="9" font-family="monospace">HTTP+SSE 推論</text>
+
+<!-- IAM → Keycloak -->
+<path d="M 310,360 C 260,400 200,435 185,448" fill="none" stroke="#7d8590" stroke-width="1.5" marker-end="url(#ah-gr)"/>
+<text x="218" y="405" fill="#7d8590" font-size="9" font-family="monospace">OIDC/JWKS</text>
+
+<!-- IAM → scheduler -->
+<path d="M 390,365 C 470,395 590,432 640,448" fill="none" stroke="#3fb950" stroke-width="1.5" marker-end="url(#ah-g)"/>
+<text x="520" y="400" fill="#3fb950" font-size="9" font-family="monospace">觸發部署</text>
+
+<!-- IAM → fleet -->
+<path d="M 340,396 C 340,460 390,530 430,568" fill="none" stroke="#3fb950" stroke-width="1.5" marker-end="url(#ah-g)"/>
+<text x="310" y="490" fill="#3fb950" font-size="9" font-family="monospace">sidecar</text>
+
+<!-- scheduler ← IAM (reverse dashed) -->
+<path d="M 638,462 C 580,440 480,405 430,375" fill="none" stroke="#3fb950" stroke-width="1.2" marker-end="url(#ah-g)" stroke-dasharray="4,3"/>
+<text x="548" y="438" fill="#3fb950" font-size="9" font-family="monospace">配額查詢</text>
+
+<!-- scheduler → fleet -->
+<path d="M 710,516 C 700,535 680,558 670,568" fill="none" stroke="#3fb950" stroke-width="1.8" marker-end="url(#ah-g)"/>
+<text x="718" y="546" fill="#3fb950" font-size="9" font-family="monospace">部署 apps</text>
+
+<!-- fleet → scheduler (capacity relay dashed) -->
+<path d="M 642,580 C 662,562 690,540 720,530" fill="none" stroke="#7d8590" stroke-width="1.2" marker-end="url(#ah-gr)" stroke-dasharray="4,3"/>
+
+<!-- fleet → node_mgr (commands via heartbeat ack) -->
+<path d="M 530,634 C 510,652 490,672 472,686" fill="none" stroke="#f0883e" stroke-width="2" marker-end="url(#ah-o)"/>
+<text x="470" y="664" fill="#f0883e" font-size="9" font-family="monospace">heartbeat ack + cmds</text>
+
+<!-- fleet → IAM (catalog sync, dashed) -->
+<path d="M 530,570 C 490,520 420,435 390,400" fill="none" stroke="#7d8590" stroke-width="1.2" marker-end="url(#ah-gr)" stroke-dasharray="4,3"/>
+
+<!-- node_mgr → fleet (heartbeat, dashed) -->
+<path d="M 490,695 C 510,672 530,652 550,638" fill="none" stroke="#f0883e" stroke-width="1.8" marker-end="url(#ah-o)" stroke-dasharray="6,3"/>
+<text x="564" y="686" fill="#f0883e" font-size="9" font-family="monospace">心跳上報</text>
+
+<!-- node_mgr → IAM (skill mounts) -->
+<path d="M 388,686 C 368,620 340,500 335,396" fill="none" stroke="#3fb950" stroke-width="1.2" marker-end="url(#ah-g)"/>
+<text x="316" y="548" fill="#3fb950" font-size="9" font-family="monospace">skill mounts</text>
+
+<!-- node_mgr → container_platform (import, dashed) -->
+<path d="M 506,714 C 550,718 580,718 606,718" fill="none" stroke="#bc8cff" stroke-width="1.5" marker-end="url(#ah-p)" stroke-dasharray="4,3"/>
+<text x="556" y="708" fill="#bc8cff" font-size="9" font-family="monospace">import</text>
+
+<!-- container_platform → Docker -->
+<path d="M 670,752 C 638,772 600,796 570,800" fill="none" stroke="#7d8590" stroke-width="1.5" marker-end="url(#ah-gr)"/>
+<text x="632" y="784" fill="#7d8590" font-size="9" font-family="monospace">Unix socket</text>
+
+<!-- resource_mgr → audit (SDK, dashed) -->
+<path d="M 926,344 C 980,316 1030,288 1060,274" fill="none" stroke="#7d8590" stroke-width="1.2" marker-end="url(#ah-gr)" stroke-dasharray="4,3"/>
+<text x="998" y="304" fill="#7d8590" font-size="9" font-family="monospace">SDK 審計</text>
+
+<!-- audit → PostgreSQL -->
+<path d="M 1110,278 C 1120,380 1128,500 1130,568" fill="none" stroke="#7d8590" stroke-width="1.5" marker-end="url(#ah-gr)"/>
+<text x="1144" y="430" fill="#7d8590" font-size="9" font-family="monospace">事件儲存</text>
+
+<!-- audit → IAM (token query, long arc) -->
+<path d="M 1050,238 C 820,215 560,265 418,330" fill="none" stroke="#7d8590" stroke-width="1.2" marker-end="url(#ah-gr)" stroke-dasharray="3,4"/>
+<text x="700" y="228" fill="#7d8590" font-size="9" font-family="monospace" text-anchor="middle">token 用量查詢</text>
+
+<!-- ===== NODES ===== -->
+
+<!-- User Browser -->
+<g class="svc-node">
+  <rect x="585" y="38" width="150" height="44" rx="8" fill="#161b22" stroke="#484f58" stroke-width="1.5"/>
+  <text x="660" y="57" text-anchor="middle" fill="#c9d1d9" font-size="13" font-weight="600">User Browser</text>
+  <text x="660" y="74" text-anchor="middle" fill="#484f58" font-size="10">外部使用者</text>
+</g>
+
+<!-- nginx -->
+<g class="svc-node">
+  <rect x="560" y="120" width="200" height="46" rx="8" fill="#1c2128" stroke="#f0883e" stroke-width="1.5"/>
+  <text x="660" y="140" text-anchor="middle" fill="#f0883e" font-size="13" font-weight="700">nginx Ingress</text>
+  <text x="660" y="157" text-anchor="middle" fill="#7d8590" font-size="10">反向代理 · 靜態資源 · CORS</text>
+</g>
+
+<!-- Console App -->
+<g class="svc-node">
+  <rect x="115" y="214" width="180" height="58" rx="8" fill="#0c1929" stroke="#58a6ff" stroke-width="1.8"/>
+  <text x="205" y="236" text-anchor="middle" fill="#58a6ff" font-size="13" font-weight="700">Console App</text>
+  <text x="205" y="252" text-anchor="middle" fill="#7d8590" font-size="10">React SPA · :3000</text>
+  <text x="205" y="266" text-anchor="middle" fill="#484f58" font-size="10">管理 UI · 聊天介面 · Audit Dashboard</text>
+</g>
+
+<!-- bustream -->
+<g class="svc-node">
+  <rect x="555" y="214" width="220" height="58" rx="8" fill="#0d2818" stroke="#3fb950" stroke-width="2"/>
+  <text x="665" y="236" text-anchor="middle" fill="#3fb950" font-size="14" font-weight="700">bustream</text>
+  <text x="665" y="252" text-anchor="middle" fill="#7d8590" font-size="10">FastAPI · :8000 · Gateway</text>
+  <text x="665" y="266" text-anchor="middle" fill="#484f58" font-size="10">OpenAI 相容 API · SSE 串流 · Agent Framework</text>
+</g>
+
+<!-- xparse_audit -->
+<g class="svc-node">
+  <rect x="1040" y="214" width="175" height="58" rx="8" fill="#1a150a" stroke="#ffa657" stroke-width="1.8"/>
+  <text x="1127" y="236" text-anchor="middle" fill="#ffa657" font-size="13" font-weight="700">xparse_audit</text>
+  <text x="1127" y="252" text-anchor="middle" fill="#7d8590" font-size="10">FastAPI · :8001</text>
+  <text x="1127" y="266" text-anchor="middle" fill="#484f58" font-size="10">治理審計 · 不可變事件流</text>
+</g>
+
+<!-- xparse_iam -->
+<g class="svc-node">
+  <rect x="200" y="332" width="185" height="58" rx="8" fill="#0d2818" stroke="#3fb950" stroke-width="1.8"/>
+  <text x="292" y="354" text-anchor="middle" fill="#3fb950" font-size="13" font-weight="700">xparse_iam</text>
+  <text x="292" y="370" text-anchor="middle" fill="#7d8590" font-size="10">Django Ninja · :8010</text>
+  <text x="292" y="384" text-anchor="middle" fill="#484f58" font-size="10">身份驗證 · 租戶 · API Key · OIDC</text>
+</g>
+
+<!-- xparse_resource_manager -->
+<g class="svc-node">
+  <rect x="730" y="332" width="220" height="58" rx="8" fill="#0d2818" stroke="#3fb950" stroke-width="1.8"/>
+  <text x="840" y="354" text-anchor="middle" fill="#3fb950" font-size="12" font-weight="700">xparse_resource_mgr</text>
+  <text x="840" y="370" text-anchor="middle" fill="#7d8590" font-size="10">FastAPI · :8020</text>
+  <text x="840" y="384" text-anchor="middle" fill="#484f58" font-size="10">並發 Slot 管理 · 優先佇列</text>
+</g>
+
+<!-- Redis -->
+<g class="svc-node">
+  <rect x="1040" y="334" width="155" height="52" rx="8" fill="#1a0d0d" stroke="#ff7b72" stroke-width="1.5"/>
+  <text x="1117" y="358" text-anchor="middle" fill="#ff7b72" font-size="13" font-weight="600">Redis</text>
+  <text x="1117" y="376" text-anchor="middle" fill="#7d8590" font-size="10">佇列 · Token 配額計數</text>
+</g>
+
+<!-- Keycloak -->
+<g class="svc-node">
+  <rect x="110" y="450" width="155" height="48" rx="8" fill="#161b22" stroke="#484f58" stroke-width="1.5"/>
+  <text x="187" y="471" text-anchor="middle" fill="#c9d1d9" font-size="13" font-weight="600">Keycloak</text>
+  <text x="187" y="488" text-anchor="middle" fill="#484f58" font-size="10">OIDC IdP · SSO</text>
+</g>
+
+<!-- xparse_routing (lib) -->
+<g class="svc-node">
+  <rect x="462" y="450" width="185" height="48" rx="8" fill="#1e1030" stroke="#bc8cff" stroke-width="1.8" stroke-dasharray="6,3"/>
+  <text x="554" y="471" text-anchor="middle" fill="#bc8cff" font-size="12" font-weight="700">xparse_routing</text>
+  <text x="554" y="487" text-anchor="middle" fill="#7d8590" font-size="10">[Library] in-process 路由決策</text>
+</g>
+
+<!-- xparse_scheduler -->
+<g class="svc-node">
+  <rect x="630" y="448" width="205" height="54" rx="8" fill="#0d2818" stroke="#3fb950" stroke-width="1.8"/>
+  <text x="732" y="470" text-anchor="middle" fill="#3fb950" font-size="12" font-weight="700">xparse_scheduler</text>
+  <text x="732" y="486" text-anchor="middle" fill="#7d8590" font-size="10">FastAPI · :8030</text>
+  <text x="732" y="499" text-anchor="middle" fill="#484f58" font-size="10">工作負載放置 · 三階段演算法</text>
+</g>
+
+<!-- NeMo Guardrails -->
+<g class="svc-node">
+  <rect x="860" y="450" width="185" height="48" rx="8" fill="#1a0d0d" stroke="#ff7b72" stroke-width="1.5"/>
+  <text x="952" y="471" text-anchor="middle" fill="#ff7b72" font-size="12" font-weight="600">NeMo Guardrails</text>
+  <text x="952" y="487" text-anchor="middle" fill="#7d8590" font-size="10">安全過濾 Sidecar · :8400</text>
+</g>
+
+<!-- LLM Providers -->
+<g class="svc-node">
+  <rect x="1090" y="448" width="200" height="54" rx="8" fill="#161b22" stroke="#484f58" stroke-width="1.5"/>
+  <text x="1190" y="468" text-anchor="middle" fill="#c9d1d9" font-size="12" font-weight="600">LLM Providers</text>
+  <text x="1190" y="484" text-anchor="middle" fill="#7d8590" font-size="10">OpenAI · Azure · Anthropic</text>
+  <text x="1190" y="498" text-anchor="middle" fill="#484f58" font-size="10">Gemini · vLLM (self-host)</text>
+</g>
+
+<!-- xparse_fleet -->
+<g class="svc-node">
+  <rect x="420" y="568" width="225" height="58" rx="8" fill="#0d2818" stroke="#3fb950" stroke-width="2"/>
+  <text x="532" y="590" text-anchor="middle" fill="#3fb950" font-size="13" font-weight="700">xparse_fleet</text>
+  <text x="532" y="606" text-anchor="middle" fill="#7d8590" font-size="10">FastAPI · :8090</text>
+  <text x="532" y="620" text-anchor="middle" fill="#484f58" font-size="10">GPU 節點編排 · 命令佇列 · Port 分配</text>
+</g>
+
+<!-- PostgreSQL -->
+<g class="svc-node">
+  <rect x="1050" y="570" width="170" height="50" rx="8" fill="#161b22" stroke="#484f58" stroke-width="1.5"/>
+  <text x="1135" y="591" text-anchor="middle" fill="#c9d1d9" font-size="13" font-weight="600">PostgreSQL</text>
+  <text x="1135" y="609" text-anchor="middle" fill="#7d8590" font-size="10">Audit DB · IAM DB</text>
+</g>
+
+<!-- xparse_node_mgr -->
+<g class="svc-node">
+  <rect x="286" y="688" width="215" height="58" rx="8" fill="#0d2818" stroke="#3fb950" stroke-width="1.8"/>
+  <text x="393" y="710" text-anchor="middle" fill="#3fb950" font-size="12" font-weight="700">xparse_node_mgr</text>
+  <text x="393" y="726" text-anchor="middle" fill="#7d8590" font-size="10">FastAPI · :8080 · agentd</text>
+  <text x="393" y="740" text-anchor="middle" fill="#484f58" font-size="10">節點端 vLLM · Sandbox · 模型下載</text>
+</g>
+
+<!-- xparse_container_platform (lib) -->
+<g class="svc-node">
+  <rect x="605" y="690" width="250" height="50" rx="8" fill="#1e1030" stroke="#bc8cff" stroke-width="1.8" stroke-dasharray="6,3"/>
+  <text x="730" y="712" text-anchor="middle" fill="#bc8cff" font-size="12" font-weight="700">xparse_container_platform</text>
+  <text x="730" y="728" text-anchor="middle" fill="#7d8590" font-size="10">[Library] 容器生命週期 · Clean Architecture</text>
+</g>
+
+<!-- Docker Engine -->
+<g class="svc-node">
+  <rect x="396" y="802" width="195" height="52" rx="8" fill="#161b22" stroke="#484f58" stroke-width="1.5"/>
+  <text x="493" y="824" text-anchor="middle" fill="#c9d1d9" font-size="13" font-weight="600">Docker Engine</text>
+  <text x="493" y="842" text-anchor="middle" fill="#484f58" font-size="10">/var/run/docker.sock · aiodocker</text>
+</g>
+
+</svg>
+</div>
+
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:#58a6ff"></div> Frontend (React)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#3fb950"></div> Backend HTTP 服務</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#ffa657"></div> Audit 服務</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#bc8cff;border:2px dashed #bc8cff;background:transparent"></div> Python Library（無 HTTP）</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#484f58"></div> 外部 / 基礎設施</div>
+  <div class="legend-item" style="margin-left:24px"><div class="legend-line" style="background:#3fb950"></div> 控制 / 管理呼叫</div>
+  <div class="legend-item"><div class="legend-line" style="background:#f0883e"></div> 資料平面 / 執行路徑</div>
+  <div class="legend-item"><div class="legend-line" style="background:#bc8cff"></div> Library import</div>
+  <div class="legend-item"><div class="legend-line" style="background:#7d8590;background:repeating-linear-gradient(90deg,#7d8590 0,#7d8590 5px,transparent 5px,transparent 8px)"></div> 非阻塞 / 事件寫入</div>
+</div>
+</div>
+
+<!-- ==================== TAB 2: SERVICES ==================== -->
+<div id="tab-services" class="tab-content">
+<div class="services-section">
+<div class="section-title">服務詳情</div>
+
+<div class="category-label">前端 · 代理層</div>
+<div class="cards-grid">
+
+<div class="card">
+  <div class="card-header">
+    <div class="card-dot" style="background:#58a6ff"></div>
+    <div class="card-name">Console App</div>
+    <div class="card-port">:3000</div>
+  </div>
+  <div class="card-type">Frontend · React SPA · nginx 靜態服務</div>
+  <div class="card-desc">Xparse 平台的管理介面。提供聊天介面、Application / Group / Model 管理、Audit 儀表板（事件查詢、Evidence Package 下載）、Fleet 節點監控、Deployment 管理。透過 nginx 反向代理呼叫各後端 API，本身只做靜態資源服務。</div>
+  <div class="chips-label">主要功能模組</div>
+  <div class="card-chips">
+    <span class="chip chip-in">聊天 (bustream /v1/*)</span>
+    <span class="chip chip-in">Application 管理 (IAM)</span>
+    <span class="chip chip-in">Audit Dashboard (xparse_audit)</span>
+    <span class="chip chip-in">Fleet 監控</span>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <div class="card-dot" style="background:#f0883e"></div>
+    <div class="card-name">nginx Ingress</div>
+  </div>
+  <div class="card-type">反向代理 · 靜態資源 · CORS 處理</div>
+  <div class="card-desc">平台的邊緣入口。所有 CORS header 在此處理，後端服務不需設定 CORS。根據 URL 前綴路由到不同後端。</div>
+  <div class="chips-label">路由規則</div>
+  <div class="card-chips">
+    <span class="chip chip-out">/v1/* /v2/* → bustream:8000</span>
+    <span class="chip chip-out">/iam/* → xparse_iam:8010</span>
+    <span class="chip chip-out">/audit/* → xparse_audit:8001</span>
+    <span class="chip chip-out">/* → Console App static</span>
+  </div>
+</div>
+
+</div>
+
+<div class="category-label">核心後端服務</div>
+<div class="cards-grid">
+
+<div class="card">
+  <div class="card-header">
+    <div class="card-dot" style="background:#3fb950"></div>
+    <div class="card-name">bustream</div>
+    <div class="card-port">:8000</div>
+  </div>
+  <div class="card-type">Backend · FastAPI · OpenAI 相容 API Gateway · Runtime Plane 核心</div>
+  <div class="card-desc">Xparse 平台所有 LLM 推論的核心閘道。每個請求的處理流程：①向 IAM 驗證 API Key 取得 AuthContext（含解密的 Provider Key）→ ②向 Resource Manager acquire slot → ③透過 xparse_routing 決定路由策略 → ④StreamingManagerV3 呼叫 LLM Provider。支援 SSE 串流、Embeddings、TTS/STT、Agent Framework (v2 tasks)、能源感知品質閘門（QualityGate ~60% 節能）。</div>
+  <div class="chips-label">主要 API 端點</div>
+  <div class="card-chips">
+    <span class="chip chip-in">POST /v1/chat/completions (SSE)</span>
+    <span class="chip chip-in">POST /v1/embeddings</span>
+    <span class="chip chip-in">POST /v1/audio/speech</span>
+    <span class="chip chip-in">GET /v1/models</span>
+    <span class="chip chip-in">POST /v2/tasks</span>
+    <span class="chip chip-in">POST /v1/signals/{id}</span>
+    <span class="chip chip-in">GET /health</span>
+    <span class="chip chip-in">GET /metrics (Prometheus)</span>
+  </div>
+  <div class="chips-label">依賴服務</div>
+  <div class="card-chips">
+    <span class="chip chip-out">xparse_iam (每次請求驗證)</span>
+    <span class="chip chip-out">xparse_resource_mgr (slot)</span>
+    <span class="chip chip-out">xparse_routing (in-process)</span>
+    <span class="chip chip-out">NeMo Guardrails (安全)</span>
+    <span class="chip chip-out">LLM Providers (推論)</span>
+    <span class="chip chip-out">Redis (佇列/配額)</span>
+    <span class="chip chip-out">xparse_audit (SDK+JSONL)</span>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <div class="card-dot" style="background:#3fb950"></div>
+    <div class="card-name">xparse_iam</div>
+    <div class="card-port">:8010</div>
+  </div>
+  <div class="card-type">Backend · Django Ninja · Governance / Control Plane 核心</div>
+  <div class="card-desc">平台的身份驗證與授權中心。管理 Tenant、Application、Group、API Key、Model Catalog、Provider Credentials（加密儲存）、Policy。API Key 三層查找（TenantKey → GroupKey → AppKey），SHA-256 雜湊不入庫。Provider Key 以 Master Secret + KEK 加密，在 /internal/gateway-validate 中解密後傳給 Gateway。支援 OIDC SSO（Keycloak）。</div>
+  <div class="chips-label">關鍵端點</div>
+  <div class="card-chips">
+    <span class="chip chip-in">POST /iam/internal/gateway-validate</span>
+    <span class="chip chip-in">GET /iam/internal/node-allocations</span>
+    <span class="chip chip-in">GET /iam/internal/group-quotas/{uuid}</span>
+    <span class="chip chip-in">POST /iam/bootstrap</span>
+    <span class="chip chip-in">POST /iam/oidc/exchange</span>
+    <span class="chip chip-in">POST /iam/applications/{uuid}/deploy</span>
+  </div>
+  <div class="chips-label">依賴服務</div>
+  <div class="card-chips">
+    <span class="chip chip-out">Keycloak (OIDC JWKS)</span>
+    <span class="chip chip-out">xparse_scheduler (觸發部署)</span>
+    <span class="chip chip-out">xparse_fleet (sidecar/endpoint)</span>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <div class="card-dot" style="background:#ffa657"></div>
+    <div class="card-name">xparse_audit</div>
+    <div class="card-port">:8001</div>
+  </div>
+  <div class="card-type">Backend · FastAPI · Audit &amp; Observability · Clean Architecture</div>
+  <div class="card-desc">治理級審計基礎設施。核心原則：非阻塞（背壓滿時丟棄，主請求不等待）、Trace-first（所有事件綁定 trace_id）、僅附加不可變（不可修改或刪除歷史事件）、Schema 版本化。bustream 透過共享 JSONL 檔案（bind mount）寫入，同時 xparse_resource_mgr 透過 Python SDK 寫入。支援 Evidence Package 打包（ZIP）下載供合規用途。</div>
+  <div class="chips-label">主要 API</div>
+  <div class="card-chips">
+    <span class="chip chip-in">GET /events (含篩選)</span>
+    <span class="chip chip-in">GET /events/trace/{traceId}</span>
+    <span class="chip chip-in">GET /stats/summary</span>
+    <span class="chip chip-in">GET /stats/top-applications</span>
+    <span class="chip chip-in">POST /evidence/packages</span>
+    <span class="chip chip-in">GET /diagnostics/store</span>
+  </div>
+  <div class="chips-label">寫入方</div>
+  <div class="card-chips">
+    <span class="chip chip-out">bustream (SDK + JSONL bind mount)</span>
+    <span class="chip chip-out">xparse_resource_mgr (SDK)</span>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <div class="card-dot" style="background:#3fb950"></div>
+    <div class="card-name">xparse_resource_manager</div>
+    <div class="card-port">:8020</div>
+  </div>
+  <div class="card-type">Backend · FastAPI · Endpoint Capacity Plane</div>
+  <div class="card-desc">管理共享推論端點的並發 Slot。Gateway 每次推論前必須 acquire 一個 lease，推論完成後 release，防止端點被超量並發壓垮。佇列為 min-heap（priority ASC + enqueue_ts ASC），TTL Reaper 背景任務定期回收過期 lease。request_id 冪等保護。</div>
+  <div class="chips-label">主要 API</div>
+  <div class="card-chips">
+    <span class="chip chip-in">POST /resource/endpoints/{id}/acquire</span>
+    <span class="chip chip-in">POST /resource/endpoints/{id}/release</span>
+    <span class="chip chip-in">GET /resource/endpoints/{id}/status</span>
+    <span class="chip chip-in">PUT /resource/endpoints/{id} (Admin)</span>
+  </div>
+</div>
+
+</div>
+
+<div class="category-label">調度 · 編排層</div>
+<div class="cards-grid">
+
+<div class="card">
+  <div class="card-header">
+    <div class="card-dot" style="background:#3fb950"></div>
+    <div class="card-name">xparse_scheduler</div>
+    <div class="card-port">:8030</div>
+  </div>
+  <div class="card-type">Backend · FastAPI · Workload Placement Scheduler</div>
+  <div class="card-desc">工作負載放置調度器。三階段演算法：① 向 IAM 查詢資源需求（resource-profiles）→ ② 向 IAM 驗證 Group 配額（group-quotas）→ ③ MostRemainingStrategy 選出最佳節點（五維資源向量：CPU/Memory/Disk/GPU/Container）。向 Fleet 下發部署命令後，等待節點心跳中繼確認（PENDING → ACTIVE 狀態轉換）。</div>
+  <div class="chips-label">主要 API</div>
+  <div class="card-chips">
+    <span class="chip chip-in">POST /scheduler/placements</span>
+    <span class="chip chip-in">DELETE /scheduler/placements/{uuid}</span>
+    <span class="chip chip-in">POST /scheduler/placements/{uuid}/restart</span>
+    <span class="chip chip-in">GET /scheduler/capacity/nodes</span>
+    <span class="chip chip-in">GET /scheduler/capacity/groups/{uuid}/usage</span>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <div class="card-dot" style="background:#3fb950"></div>
+    <div class="card-name">xparse_fleet</div>
+    <div class="card-port">:8090</div>
+  </div>
+  <div class="card-type">Backend · FastAPI · Orchestration Control Plane</div>
+  <div class="card-desc">GPU 節點群的編排控制平面（唯一可信狀態來源）。維護所有節點從 REGISTERED → ACTIVE 的完整狀態機（9 種狀態）。透過心跳 ACK 中的 pending_commands 向節點下發命令（部署/驗證/停止）。管理 GPU VRAM 感知放置、Port 分配登錄（bind mount 確保一次精確）、模型 Catalog 協調（L1 YAML → L2 IAM DB）。</div>
+  <div class="chips-label">主要 API</div>
+  <div class="card-chips">
+    <span class="chip chip-in">POST /v1/fleet/heartbeat</span>
+    <span class="chip chip-in">POST /v1/fleet/deploy</span>
+    <span class="chip chip-in">POST /v1/fleet/apps/{code}/deploy</span>
+    <span class="chip chip-in">GET /v1/fleet/status</span>
+    <span class="chip chip-in">POST /v1/fleet/nodes/{id}/approve</span>
+    <span class="chip chip-in">GET /v1/fleet/routable-endpoints</span>
+  </div>
+</div>
+
+</div>
+
+<div class="category-label">節點層</div>
+<div class="cards-grid">
+
+<div class="card">
+  <div class="card-header">
+    <div class="card-dot" style="background:#3fb950"></div>
+    <div class="card-name">xparse_node_mgr</div>
+    <div class="card-port">:8080</div>
+  </div>
+  <div class="card-type">Backend · FastAPI · Node Runtime Agent (agentd) · 掛載 Docker Socket</div>
+  <div class="card-desc">GPU 節點端的輕量控制平面（agentd）。掛載 host docker socket 管理本地容器。週期性向 Fleet 發送心跳（含服務狀態、GPU 用量、命令執行結果），接收回傳的 pending_commands 並執行（deploy/stop/validate 等）。Watchdog 監控 vLLM 實例健康，暫態失敗自動重啟，CUDA OOM 等永久錯誤不重試。狀態以 state.json（filelock + temp-rename 原子寫入）持久化。</div>
+  <div class="chips-label">主要 API</div>
+  <div class="card-chips">
+    <span class="chip chip-in">POST /v1/services/apply (vLLM)</span>
+    <span class="chip chip-in">POST /v1/sandboxes</span>
+    <span class="chip chip-in">POST /v1/sandboxes/{id}/exec</span>
+    <span class="chip chip-in">POST /v1/models/download</span>
+    <span class="chip chip-in">GET /v1/gpu/info</span>
+    <span class="chip chip-in">GET /livez (Docker HEALTHCHECK)</span>
+  </div>
+</div>
+
+</div>
+
+<div class="category-label">Python Library（進程內，無 HTTP Port）</div>
+<div class="cards-grid">
+
+<div class="card">
+  <div class="card-header">
+    <div class="card-dot" style="background:#bc8cff"></div>
+    <div class="card-name">xparse_routing</div>
+  </div>
+  <div class="card-type">Library · 被 bustream Gateway 引入 · 決定路由策略</div>
+  <div class="card-desc">為每個聊天請求決定使用哪些 LLM 模型、以何種模式執行（direct 單模型 / twin 雙模型）。策略設定以 SQLAlchemy 持久化（SQLite/PostgreSQL），60s TTL 快取避免頻繁查詢。決策日誌非同步 fire-and-forget 寫入，不影響回應延遲。5 種內建策略。</div>
+  <div class="chips-label">5 種路由策略</div>
+  <div class="card-chips">
+    <span class="chip chip-lib">none → DirectStrategy (models[0])</span>
+    <span class="chip chip-lib">smart_routing → TwinStrategy</span>
+    <span class="chip chip-lib">cost_first → 最低估算費用</span>
+    <span class="chip chip-lib">energy_first → 最低焦耳/token</span>
+    <span class="chip chip-lib">health_aware → 健康分數優先</span>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <div class="card-dot" style="background:#bc8cff"></div>
+    <div class="card-name">xparse_container_platform</div>
+  </div>
+  <div class="card-type">Library · Clean Architecture · 被 xparse_node_mgr 引入</div>
+  <div class="card-desc">Sandbox 容器完整生命週期管理。Clean Architecture 嚴格分層（Domain → Ports → Infrastructure），DockerRuntime 透過 aiodocker 連接 Docker Engine Unix Socket。硬性安全約束（ADR-103）：硬碼 Privileged=False、CapDrop=ALL、ReadonlyRootfs、no-new-privileges，任何 privileged 請求在 schema 層以 422 拒絕。支援 Google nsjail per-execution 二次沙箱隔離。</div>
+  <div class="chips-label">10 個 Use Cases</div>
+  <div class="card-chips">
+    <span class="chip chip-lib">CreateSandbox</span>
+    <span class="chip chip-lib">StartSandbox</span>
+    <span class="chip chip-lib">StopSandbox</span>
+    <span class="chip chip-lib">DestroySandbox</span>
+    <span class="chip chip-lib">ExecInSandbox</span>
+    <span class="chip chip-lib">GetSandboxStatus</span>
+    <span class="chip chip-lib">CreateNetwork</span>
+    <span class="chip chip-lib">RemoveNetwork</span>
+    <span class="chip chip-lib">ListNetworks</span>
+    <span class="chip chip-lib">ListSandboxes</span>
+  </div>
+</div>
+
+</div>
+</div>
+</div>
+
+<!-- ==================== TAB 3: CONNECTIONS ==================== -->
+<div id="tab-connections" class="tab-content">
+<div class="conn-section">
+<div class="section-title">服務通訊總表</div>
+<table class="conn-table">
+<thead>
+<tr>
+  <th>發起方</th><th>目標方</th><th>協議</th><th>端點 / 說明</th><th>觸發時機</th><th>失敗行為</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td><span class="src-tag" style="background:#0c1929;color:#58a6ff">Console App</span></td>
+  <td>bustream</td>
+  <td><span class="proto-tag proto-rest">HTTP+SSE</span></td>
+  <td>POST /v1/chat/completions，GET /v1/models，POST /v2/tasks 等</td>
+  <td>使用者發起聊天 / 查詢模型清單</td>
+  <td><span class="fail-fast">fail-fast 4xx/5xx JSON</span></td>
+</tr>
+<tr>
+  <td><span class="src-tag" style="background:#0c1929;color:#58a6ff">Console App</span></td>
+  <td>xparse_iam</td>
+  <td><span class="proto-tag proto-rest">HTTP REST</span></td>
+  <td>/iam/applications, /iam/groups, /iam/api-keys, /iam/oidc/exchange 等</td>
+  <td>管理操作 / OIDC SSO 登入</td>
+  <td><span class="fail-fast">fail-fast 4xx/5xx</span></td>
+</tr>
+<tr>
+  <td><span class="src-tag" style="background:#0c1929;color:#58a6ff">Console App</span></td>
+  <td>xparse_audit</td>
+  <td><span class="proto-tag proto-rest">HTTP REST</span></td>
+  <td>GET /events, GET /stats/summary, POST /evidence/packages, GET /usage/per-user</td>
+  <td>開啟 Audit Dashboard / 儀表板</td>
+  <td><span class="fail-fast">連續 3 次失敗停止重試</span></td>
+</tr>
+<tr>
+  <td><span class="src-tag" style="background:#0d2818;color:#3fb950">bustream</span></td>
+  <td>xparse_iam</td>
+  <td><span class="proto-tag proto-rest">HTTP POST</span></td>
+  <td>POST /iam/internal/gateway-validate<br/><small>Body: {"api_key":"..."} → 回傳解密後 Provider Key + AuthContext</small></td>
+  <td>每個進入的 API 請求（驗證 Bearer Key）</td>
+  <td><span class="fail-fast">fail-fast → 500</span></td>
+</tr>
+<tr>
+  <td><span class="src-tag" style="background:#0d2818;color:#3fb950">bustream</span></td>
+  <td>xparse_resource_mgr</td>
+  <td><span class="proto-tag proto-rest">HTTP long-poll</span></td>
+  <td>POST /resource/endpoints/{id}/acquire（等待 slot，timeout_ms 可設）</td>
+  <td>推論前申請 slot（可在佇列中等待）</td>
+  <td><span class="fail-open">fail-open 降級為直接執行</span></td>
+</tr>
+<tr>
+  <td><span class="src-tag" style="background:#0d2818;color:#3fb950">bustream</span></td>
+  <td>xparse_routing</td>
+  <td><span class="proto-tag proto-lib">in-process Python</span></td>
+  <td>Resolver.resolve(application_id, context, models) → ExecutionPlan</td>
+  <td>每個聊天請求，決定路由策略與模式</td>
+  <td><span class="fail-open">degraded mode → DirectStrategy</span></td>
+</tr>
+<tr>
+  <td><span class="src-tag" style="background:#0d2818;color:#3fb950">bustream</span></td>
+  <td>LLM Providers</td>
+  <td><span class="proto-tag proto-rest">HTTP+SSE</span></td>
+  <td>POST /v1/chat/completions（各 Provider 原生端點）</td>
+  <td>執行 LLM 推論（OpenAI/Azure/vLLM/Anthropic 等）</td>
+  <td><span class="fail-fast">WorkerError → 503，熔斷器</span></td>
+</tr>
+<tr>
+  <td><span class="src-tag" style="background:#0d2818;color:#3fb950">bustream</span></td>
+  <td>NeMo Guardrails</td>
+  <td><span class="proto-tag proto-rest">HTTP POST</span></td>
+  <td>POST /v1/guardrails/{id}/check（timeout 5s）</td>
+  <td>啟用 Guardrail Policy 的請求</td>
+  <td><span class="fail-fast">fail-closed → 503 block verdict</span></td>
+</tr>
+<tr>
+  <td><span class="src-tag" style="background:#0d2818;color:#3fb950">bustream</span></td>
+  <td>Redis</td>
+  <td><span class="proto-tag">Redis Protocol</span></td>
+  <td>請求佇列管理 + Token 配額計數（production/quota_counter.py）</td>
+  <td>每個請求進入時</td>
+  <td><span class="fail-open">fail-open shadow mode（略過）</span></td>
+</tr>
+<tr>
+  <td><span class="src-tag" style="background:#0d2818;color:#3fb950">bustream</span></td>
+  <td>xparse_audit</td>
+  <td><span class="proto-tag proto-jsonl">SDK + JSONL</span></td>
+  <td>BoundedBuffer(10000) → AsyncSinkWriter → /var/audit/evidence/*.jsonl</td>
+  <td>每個請求的 15+ 種審計事件（非阻塞）</td>
+  <td><span class="fail-soft">非阻塞：佇列滿時丟棄最新事件</span></td>
+</tr>
+<tr>
+  <td><span class="src-tag" style="background:#0d2818;color:#3fb950">xparse_iam</span></td>
+  <td>Keycloak</td>
+  <td><span class="proto-tag proto-rest">HTTP GET</span></td>
+  <td>GET {JWKS_URL}（OIDC 公鑰，1h TTL 快取）</td>
+  <td>OIDC Token Exchange（SSO 登入）</td>
+  <td><span class="fail-fast">Token 驗證失敗 → 403</span></td>
+</tr>
+<tr>
+  <td><span class="src-tag" style="background:#0d2818;color:#3fb950">xparse_iam</span></td>
+  <td>xparse_scheduler</td>
+  <td><span class="proto-tag proto-rest">HTTP POST</span></td>
+  <td>POST /scheduler/placements</td>
+  <td>Console 觸發 Application 容器部署</td>
+  <td><span class="fail-fast">503 hard fail (ADR-121)</span></td>
+</tr>
+<tr>
+  <td><span class="src-tag" style="background:#0d2818;color:#3fb950">xparse_iam</span></td>
+  <td>xparse_fleet</td>
+  <td><span class="proto-tag proto-rest">HTTP GET/POST</span></td>
+  <td>GET /v1/fleet/apps/{code}/endpoint，POST /v1/fleet/apps/{code}/sidecar</td>
+  <td>查詢 App 端點 / 建立 Group Sidecar Proxy</td>
+  <td><span class="fail-open">fail-open 回空清單</span></td>
+</tr>
+<tr>
+  <td><span class="src-tag" style="background:#0d2818;color:#3fb950">xparse_scheduler</span></td>
+  <td>xparse_iam</td>
+  <td><span class="proto-tag proto-rest">HTTP GET</span></td>
+  <td>GET /iam/internal/group-quotas/{uuid}<br/>GET /iam/internal/resource-profiles/{uuid}<br/>GET /iam/internal/deployment-count/{uuid}</td>
+  <td>放置決策前驗證配額與資源需求</td>
+  <td><span class="fail-fast">fail-fast → 400 QuotaExceeded</span></td>
+</tr>
+<tr>
+  <td><span class="src-tag" style="background:#0d2818;color:#3fb950">xparse_scheduler</span></td>
+  <td>xparse_fleet</td>
+  <td><span class="proto-tag proto-rest">HTTP POST</span></td>
+  <td>POST /v1/fleet/apps/{app_code}/deploy</td>
+  <td>確定放置節點後下發部署命令</td>
+  <td><span class="fail-fast">→ 502 Fleet 通訊失敗</span></td>
+</tr>
+<tr>
+  <td><span class="src-tag" style="background:#0d2818;color:#3fb950">xparse_fleet</span></td>
+  <td>xparse_node_mgr</td>
+  <td><span class="proto-tag proto-rest">HTTP (heartbeat ack)</span></td>
+  <td>pending_commands in heartbeat ACK response body</td>
+  <td>每次心跳回應（FLEET_HEARTBEAT_INTERVAL 秒）</td>
+  <td><span class="fail-soft">命令有 TTL，過期自動 expire</span></td>
+</tr>
+<tr>
+  <td><span class="src-tag" style="background:#0d2818;color:#3fb950">xparse_fleet</span></td>
+  <td>xparse_iam</td>
+  <td><span class="proto-tag proto-rest">HTTP POST</span></td>
+  <td>POST /iam/catalog/deployments（部署進度事件轉發：pulling→serving→failed）</td>
+  <td>節點心跳中包含 active_deployments 相位變化</td>
+  <td><span class="fail-soft">失敗記 warning，不阻止心跳 ACK</span></td>
+</tr>
+<tr>
+  <td><span class="src-tag" style="background:#0d2818;color:#3fb950">xparse_fleet</span></td>
+  <td>xparse_scheduler</td>
+  <td><span class="proto-tag proto-rest">HTTP POST</span></td>
+  <td>POST /nodes/{node_id}/report（容量中繼）</td>
+  <td>收到節點心跳後非同步轉發容量資訊</td>
+  <td><span class="fail-soft">失敗只記 warning</span></td>
+</tr>
+<tr>
+  <td><span class="src-tag" style="background:#0d2818;color:#3fb950">xparse_node_mgr</span></td>
+  <td>xparse_fleet</td>
+  <td><span class="proto-tag proto-rest">HTTP POST</span></td>
+  <td>POST /v1/fleet/heartbeat（含：services, gpus, workloads, active_deployments, command_results, capacity, host_ports_observed）</td>
+  <td>週期性心跳（FLEET_HEARTBEAT_INTERVAL 秒）</td>
+  <td><span class="fail-soft">retry + 指數退避</span></td>
+</tr>
+<tr>
+  <td><span class="src-tag" style="background:#0d2818;color:#3fb950">xparse_node_mgr</span></td>
+  <td>xparse_iam</td>
+  <td><span class="proto-tag proto-rest">HTTP GET/POST</span></td>
+  <td>GET /iam/internal/skill-mounts/{app_uuid}<br/>POST /iam/internal/resolve-provider-credential</td>
+  <td>部署 Agent App 或載入 Skill mount 時</td>
+  <td><span class="fail-open">fail-open（略過 mount，繼續啟動）</span></td>
+</tr>
+<tr>
+  <td><span class="src-tag" style="background:#0d2818;color:#3fb950">xparse_node_mgr</span></td>
+  <td>xparse_container_platform</td>
+  <td><span class="proto-tag proto-lib">Python import</span></td>
+  <td>CreateSandbox, ExecInSandbox, DestroySandbox, CreateNetwork 等 10 個 Use Cases</td>
+  <td>Sandbox CRUD 操作（來自 HTTP handler 或 heartbeat 命令）</td>
+  <td><span class="fail-fast">例外上拋至 handler 層</span></td>
+</tr>
+<tr>
+  <td><span class="src-tag" style="background:#1e1030;color:#bc8cff">xparse_container_platform</span></td>
+  <td>Docker Engine</td>
+  <td><span class="proto-tag">HTTP/1.1 Unix Socket</span></td>
+  <td>aiodocker → /var/run/docker.sock（容器 create/start/stop/exec/remove/network）</td>
+  <td>每個 Use Case 執行時</td>
+  <td><span class="fail-fast">ContainerRuntimeError（含 operation + detail）</span></td>
+</tr>
+<tr>
+  <td><span class="src-tag" style="background:#0d2818;color:#3fb950">xparse_resource_mgr</span></td>
+  <td>xparse_audit</td>
+  <td><span class="proto-tag proto-lib">SDK (in-process)</span></td>
+  <td>AuditClient.record()（5 種事件：acquired/released/reclaimed/timeout/full）</td>
+  <td>每次 Lease 狀態變更</td>
+  <td><span class="fail-soft">完全 fail-soft，不影響容量邏輯</span></td>
+</tr>
+<tr>
+  <td><span class="src-tag" style="background:#1a150a;color:#ffa657">xparse_audit</span></td>
+  <td>PostgreSQL</td>
+  <td><span class="proto-tag">SQL (SQLAlchemy)</span></td>
+  <td>INSERT audit events，Evidence Package CRUD</td>
+  <td>審計事件寫入 + Package 管理</td>
+  <td><span class="fail-soft">背景 writer 重試</span></td>
+</tr>
+<tr>
+  <td><span class="src-tag" style="background:#1a150a;color:#ffa657">xparse_audit</span></td>
+  <td>xparse_iam</td>
+  <td><span class="proto-tag proto-rest">HTTP GET</span></td>
+  <td>GET /stats/top-applications（配額對帳）</td>
+  <td>Django management command: reconcile_token_quota</td>
+  <td><span class="fail-fast">command 失敗報錯</span></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+
+<script>
+function showTab(e, name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  e.target.classList.add('active');
+}
+</script>
+</body>
+</html>

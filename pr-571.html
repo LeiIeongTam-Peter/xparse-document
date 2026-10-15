@@ -1,0 +1,469 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <title>Policy-as-Code + Runtime Policy Planes — Xparse Architecture</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <style>
+      :root {
+        --bg: #fbfbfb;
+        --fg: #1c1c1f;
+        --muted: #6a6a73;
+        --rule: #d8d8df;
+        --accent: #2a4d8f;
+        --warn: #b50000;
+        --code-bg: #f3f3f6;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #15171b;
+          --fg: #e5e7eb;
+          --muted: #9aa0aa;
+          --rule: #2c2f36;
+          --accent: #8ab4ff;
+          --warn: #ff6b6b;
+          --code-bg: #1e2026;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: var(--bg);
+        color: var(--fg);
+      }
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC",
+          "Noto Sans TC", "Microsoft JhengHei", Helvetica, Arial, sans-serif;
+        line-height: 1.55;
+        font-size: 15px;
+      }
+      .wrap {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 2.5rem 2rem 4rem;
+      }
+      h1 {
+        font-size: 1.6rem;
+        margin: 0 0 0.35rem;
+        letter-spacing: -0.01em;
+      }
+      h2 {
+        font-size: 1.15rem;
+        margin: 2.2rem 0 0.75rem;
+        color: var(--accent);
+        border-bottom: 1px solid var(--rule);
+        padding-bottom: 0.3rem;
+      }
+      h3 {
+        font-size: 1rem;
+        margin: 1.4rem 0 0.5rem;
+      }
+      .sub {
+        color: var(--muted);
+        margin-bottom: 1.5rem;
+        font-size: 0.92rem;
+      }
+      .meta {
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        gap: 0.3rem 1rem;
+        font-size: 0.88rem;
+        border: 1px solid var(--rule);
+        border-radius: 6px;
+        padding: 0.8rem 1rem;
+        background: var(--code-bg);
+      }
+      .meta dt {
+        color: var(--muted);
+        font-weight: 500;
+      }
+      .meta dd {
+        margin: 0;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        font-size: 0.9rem;
+        margin: 0.6rem 0 1rem;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 0.45rem 0.7rem;
+        border-bottom: 1px solid var(--rule);
+        vertical-align: top;
+      }
+      th {
+        background: var(--code-bg);
+        font-weight: 600;
+      }
+      td code,
+      .inline {
+        font-family: ui-monospace, "JetBrains Mono", Consolas, monospace;
+        font-size: 0.85em;
+        background: var(--code-bg);
+        padding: 1px 5px;
+        border-radius: 3px;
+      }
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.6rem 1.2rem;
+        font-size: 0.88rem;
+        margin: 0.4rem 0 1rem;
+      }
+      .legend span {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+      }
+      .swatch {
+        width: 14px;
+        height: 14px;
+        border-radius: 3px;
+        border: 1.5px solid;
+      }
+      .deny {
+        color: var(--warn);
+        font-weight: 600;
+      }
+      .diagram {
+        border: 1px solid var(--rule);
+        border-radius: 8px;
+        padding: 1.2rem;
+        background: #ffffff;
+        overflow-x: auto;
+      }
+      @media (prefers-color-scheme: dark) {
+        .diagram {
+          background: #1a1d22;
+        }
+      }
+      .mermaid {
+        text-align: center;
+        min-width: 980px;
+      }
+      footer {
+        margin-top: 3rem;
+        color: var(--muted);
+        font-size: 0.82rem;
+        border-top: 1px solid var(--rule);
+        padding-top: 1rem;
+      }
+      a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+      .callout {
+        border-left: 3px solid var(--accent);
+        background: var(--code-bg);
+        padding: 0.6rem 0.9rem;
+        margin: 1rem 0;
+        font-size: 0.9rem;
+      }
+      @media print {
+        body {
+          background: #fff;
+          color: #000;
+        }
+        .diagram {
+          border-color: #999;
+          background: #fff;
+          page-break-inside: avoid;
+        }
+        h2 {
+          page-break-after: avoid;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>Policy-as-Code + Runtime Policy Planes — Xparse Architecture</h1>
+      <div class="sub">
+        Canonical architecture for ADR-191. Reusable policy content +
+        <span class="inline">PolicyAssignment</span> binding relation; five
+        policy planes with distinct enforcement owners; LLM operational policy
+        is the only plane that flows through the IAM validate-time snapshot.
+      </div>
+
+      <dl class="meta">
+        <dt>Date</dt>
+        <dd>2026-05-27</dd>
+        <dt>Status</dt>
+        <dd>Proposed (ADR-191 / PRD-156 / SPEC-168 — awaiting review)</dd>
+        <dt>Source</dt>
+        <dd>
+          <span class="inline"
+            >docs/adr/ADR-191-policy-as-code-and-runtime-policy-planes.md</span
+          >, <span class="inline">docs/prd/PRD-156-…</span>,
+          <span class="inline">docs/specs/SPEC-168-…</span>
+        </dd>
+        <dt>Drives</dt>
+        <dd>
+          PR #571 (<span class="inline"
+            >docs/adr-191-policy-as-code-runtime-planes</span
+          >)
+        </dd>
+        <dt>Supersedes</dt>
+        <dd>
+          operational ADR-185 + SPEC-152 (policy-row
+          <span class="inline">scope_level/scope_id</span> design)
+        </dd>
+      </dl>
+
+      <h2>Architecture Overview</h2>
+      <p>
+        CI/CD YAML manifests →
+        <span class="inline">sync_policies</span> reconciler → IAM DB (<span
+          class="inline"
+          >PolicyBundle</span
+        >
+        immutable content + <span class="inline">PolicyAssignment</span> binding
+        rows) → five policy planes, each routed to its own enforcement owner.
+        LLM operational policy is the one plane that enters the IAM
+        <span class="inline">validate_api_key()</span> immutable snapshot
+        (INV-057-7 no re-resolve); deployment/runtime/egress/sidecar/data planes
+        are enforced at deployment-time or at the network/ingress/data
+        boundaries.
+      </p>
+
+      <div class="legend">
+        <span
+          ><span
+            class="swatch"
+            style="background: #efe; border-color: #363"
+          ></span
+          >Storage (DB · runtime SoT)</span
+        >
+        <span
+          ><span
+            class="swatch"
+            style="background: #eef; border-color: #446"
+          ></span
+          >Policy plane</span
+        >
+        <span
+          ><span
+            class="swatch"
+            style="background: #fee; border-color: #a33"
+          ></span
+          >Enforcement owner</span
+        >
+        <span
+          ><span
+            class="swatch"
+            style="background: #ffe; border-color: #a83"
+          ></span
+          >Authoring / Console / hard-deny</span
+        >
+        <span
+          >━ thick edge = main runtime flow · ┄ dotted = binding / invariant /
+          hard-deny note</span
+        >
+      </div>
+
+      <div class="diagram">
+        <script type="text/plain" id="diagram-source">
+flowchart LR
+  %% ─────────────── Authoring & Sync ───────────────
+  subgraph A["📝 Authoring · CI/CD"]
+    YAML["policies/*.yaml<br/>system · editions · plugins · sites"]
+  end
+  Sync["sync_policies --apply<br/>idempotent · hash-verified · fail-fast"]
+  YAML --> Sync
+
+  %% ─────────────── Storage (DB = runtime source of truth) ───────────────
+  subgraph DB["🗄️ IAM DB · runtime source of truth"]
+    Bundle["PolicyBundle<br/>immutable · versioned content"]
+    Assign["PolicyAssignment<br/>target_scope_type / id<br/>precedence · status · effective window"]
+    Bundle -. bound by .- Assign
+  end
+  Sync --> Bundle
+  Sync --> Assign
+
+  Console["🖥️ Console<br/>gitops baseline = read-only<br/>overrides = audited assignment"]
+  Console -- overrides only --> Assign
+
+  %% ─────────────── Five policy planes ───────────────
+  subgraph P["⚙️ Five policy planes · each with its own enforcement owner"]
+    direction TB
+    LLM["LLMOperationalPolicy<br/>rate · guardrail · quota · model access"]
+    DRP["DeploymentRuntimePolicy<br/>image · privilege · volumes · caps"]
+    REP["RuntimeEgressPolicy<br/>deny_all · internal · allowlist · hard-deny 169.254.169.254"]
+    SAP["SidecarAccessPolicy<br/>path · method · WS · upload/download"]
+    DHP["DataHandlingPolicy<br/>persistence · export · clipboard · PII"]
+  end
+  Assign --> LLM
+  Assign --> DRP
+  Assign --> REP
+  Assign --> SAP
+  Assign --> DHP
+
+  %% ─────────────── LLM live enforcement (snapshot path) ───────────────
+  subgraph Live["🔥 LLM live path · INV-191-3 / INV-057-7"]
+    direction LR
+    Validate["IAM validate_api_key()<br/>resolver: Deployment&gt;App&gt;Group&gt;Tenant<br/>★ Deployment only if key carries deployment_uuid"]
+    Snap["Immutable validate snapshot"]
+    GW["Gateway admission + guardrail · LLM Proxy"]
+    Validate -. no re-resolve .-> Snap --> GW
+  end
+  LLM ==> Validate
+
+  %% ─────────────── Other enforcement owners ───────────────
+  Sched["Scheduler + Fleet"]
+  Agentd["agentd · network boundary<br/>egress proxy / firewall / DNS proxy"]
+  Ingress["Ingress + IAM verify-session<br/>sidecar nginx / envoy"]
+  AppData["sidecar + app adapter<br/>mount policy + audit"]
+
+  DRP ==> Sched --> Agentd
+  REP ==> Agentd
+  SAP ==> Ingress
+  DHP ==> AppData
+
+  %% ─────────────── Hard denies (cross-plane) ───────────────
+  Hard["⛔ Hard denies (any plane):<br/>cloud metadata · docker socket · host net · privileged"]
+  Agentd -. enforces .-> Hard
+
+  classDef plane fill:#eef,stroke:#446,color:#113
+  classDef enforce fill:#fee,stroke:#a33,color:#511
+  classDef store fill:#efe,stroke:#363,color:#131
+  classDef io fill:#ffe,stroke:#a83,color:#420
+  class LLM,DRP,REP,SAP,DHP plane
+  class Validate,Snap,GW,Sched,Agentd,Ingress,AppData enforce
+  class Bundle,Assign store
+  class YAML,Sync,Console,Hard io
+        </script>
+        <div id="diagram" class="mermaid" aria-label="Policy-as-Code runtime planes architecture diagram"></div>
+      </div>
+
+      <h3>Reading guide</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Element</th>
+            <th>Meaning</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>YAML → <span class="inline">sync_policies</span> → DB</td>
+            <td>
+              Policy-as-Code lifecycle. Manifests are desired state; DB is
+              runtime source of truth (INV-191-5: no hot-path YAML reads).
+            </td>
+          </tr>
+          <tr>
+            <td>Bundle ┄ Assignment</td>
+            <td>
+              Reusable content + binding relation. One
+              <span class="inline">PolicyBundle</span> version may be assigned
+              to many targets (INV-191-1/2 · solves PRD-132 §情境A fan-out).
+            </td>
+          </tr>
+          <tr>
+            <td>Console → Assignment</td>
+            <td>
+              GitOps baseline is read-only in Console (INV-191-6); only audited
+              overrides may mutate assignments.
+            </td>
+          </tr>
+          <tr>
+            <td>Five planes</td>
+            <td>
+              Each plane has a distinct enforcement owner. LLM is the only plane
+              that enters validate snapshot; the others enforce at
+              container/network/ingress/data boundaries.
+            </td>
+          </tr>
+          <tr>
+            <td>LLM ⇒ Validate ┄ Snap → GW</td>
+            <td>
+              Live path. Resolver order
+              <span class="inline"
+                >Deployment &gt; Application &gt; Group &gt; Tenant</span
+              >. Deployment scope applies
+              <strong>only when the request carries deployment identity</strong>
+              (INV-191-4 · application-level key stops at Application).
+            </td>
+          </tr>
+          <tr>
+            <td>⛔ Hard denies</td>
+            <td>
+              Cross-plane invariants enforced by the agentd network boundary
+              regardless of any allowlist: metadata endpoint, docker socket,
+              host network, privileged container (INV-191-7).
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="callout">
+        <strong>What this diagram replaces.</strong> The earlier operational
+        ADR-185 stored <span class="inline">scope_level/scope_id</span> directly
+        on <span class="inline">RateLimitPolicy</span> /
+        <span class="inline">GuardrailPolicy</span> rows with an advisory
+        four-level resolver that never connected to the live path. ADR-191 keeps
+        policy content reusable, makes target ownership an explicit binding
+        relation, splits the planes by enforcement owner, and wires LLM
+        operational policy into the validate snapshot.
+      </div>
+
+      <footer>
+        Diagram source:
+        <span class="inline">policy-as-code-runtime-planes.mmd</span>
+        · Canonical decision:
+        <span class="inline"
+          >docs/adr/ADR-191-policy-as-code-and-runtime-policy-planes.md</span
+        >
+        · Renderer: Mermaid 10.x (loaded from jsDelivr CDN). For air-gapped
+        review, vendor <span class="inline">mermaid.min.js</span> locally and
+        replace the script tag.
+      </footer>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+    <script>
+      (async function () {
+        const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+        mermaid.initialize({
+          startOnLoad: false,
+          theme: dark ? "dark" : "neutral",
+          securityLevel: "loose",
+          flowchart: { htmlLabels: true, curve: "basis", padding: 14 },
+          themeVariables: {
+            fontFamily: "inherit",
+            fontSize: "13px",
+          },
+        });
+
+        const target = document.getElementById("diagram");
+        const mmdPath = "policy-as-code-runtime-planes.mmd";
+
+        async function loadDiagramSource() {
+          try {
+            const res = await fetch(mmdPath);
+            if (!res.ok) throw new Error(String(res.status));
+            const text = await res.text();
+            return text.replace(/^%%[^\n]*\n/gm, "").trim();
+          } catch {
+            const fallback = document.getElementById("diagram-source");
+            return fallback.textContent.trim();
+          }
+        }
+
+        const source = await loadDiagramSource();
+        target.textContent = source;
+        await mermaid.run({ nodes: [target] });
+      })();
+    </script>
+  </body>
+</html>

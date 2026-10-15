@@ -1,0 +1,1115 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Xparse 系統架構文件</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg:#0f1117;--card:#1a1d27;--card2:#1e2133;--border:#2a2d3e;
+    --accent:#6366f1;--accent2:#818cf8;--accent3:#4f46e5;
+    --text:#e2e8f0;--muted:#8892a4;--success:#10b981;--warn:#f59e0b;--danger:#ef4444;
+    --info:#3b82f6;--nav-w:230px;--radius:8px;
+  }
+  body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang TC','Noto Sans TC',sans-serif;font-size:14px;line-height:1.6;display:flex;min-height:100vh}
+  /* NAV */
+  nav{position:fixed;top:0;left:0;width:var(--nav-w);height:100vh;background:var(--card);border-right:1px solid var(--border);overflow-y:auto;z-index:100;display:flex;flex-direction:column}
+  .nav-logo{padding:20px 16px 16px;border-bottom:1px solid var(--border)}
+  .nav-logo h1{font-size:16px;font-weight:700;color:#fff;letter-spacing:-.3px}
+  .nav-logo p{font-size:11px;color:var(--muted);margin-top:2px}
+  .nav-section{padding:12px 16px 4px;font-size:10px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--muted)}
+  nav a{display:flex;align-items:center;gap:8px;padding:7px 16px;color:var(--muted);text-decoration:none;font-size:13px;border-left:2px solid transparent;transition:all .15s}
+  nav a:hover,nav a.active{color:var(--text);background:rgba(99,102,241,.08);border-left-color:var(--accent)}
+  nav a .icon{font-size:15px;width:18px;text-align:center}
+  /* MAIN */
+  main{margin-left:var(--nav-w);flex:1;padding:32px 40px;max-width:1200px}
+  section{margin-bottom:56px;scroll-margin-top:24px}
+  h2{font-size:22px;font-weight:700;color:#fff;margin-bottom:4px}
+  .section-subtitle{color:var(--muted);font-size:13px;margin-bottom:24px}
+  h3{font-size:16px;font-weight:600;color:var(--accent2);margin:24px 0 12px}
+  h4{font-size:14px;font-weight:600;color:var(--text);margin:16px 0 8px}
+  /* CARDS */
+  .card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:16px}
+  .card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px}
+  .service-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px;position:relative;overflow:hidden}
+  .service-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px}
+  .service-card.runtime::before{background:linear-gradient(90deg,#6366f1,#818cf8)}
+  .service-card.governance::before{background:linear-gradient(90deg,#10b981,#34d399)}
+  .service-card.platform::before{background:linear-gradient(90deg,#f59e0b,#fbbf24)}
+  .service-card.audit::before{background:linear-gradient(90deg,#3b82f6,#60a5fa)}
+  .service-card.library::before{background:linear-gradient(90deg,#8b5cf6,#a78bfa)}
+  .service-badge{display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;margin-bottom:10px;text-transform:uppercase;letter-spacing:.4px}
+  .badge-runtime{background:rgba(99,102,241,.15);color:var(--accent2)}
+  .badge-governance{background:rgba(16,185,129,.15);color:#34d399}
+  .badge-platform{background:rgba(245,158,11,.15);color:#fbbf24}
+  .badge-audit{background:rgba(59,130,246,.15);color:#60a5fa}
+  .badge-library{background:rgba(139,92,246,.15);color:#a78bfa}
+  .badge-frontend{background:rgba(236,72,153,.15);color:#f472b6}
+  .service-title{font-size:16px;font-weight:700;color:#fff;margin-bottom:4px}
+  .service-port{font-size:11px;color:var(--muted);font-family:monospace;background:var(--card2);padding:1px 6px;border-radius:4px;display:inline-block;margin-bottom:10px}
+  .service-desc{font-size:13px;color:var(--muted);line-height:1.5;margin-bottom:12px}
+  .service-links{font-size:12px}
+  .service-links strong{color:var(--text)}
+  .link-item{display:flex;gap:4px;margin-bottom:4px;align-items:flex-start}
+  .link-arrow{color:var(--accent);flex-shrink:0;margin-top:1px}
+  /* TABLES */
+  table{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:8px}
+  th{background:var(--card2);color:var(--muted);font-weight:600;text-transform:uppercase;font-size:10px;letter-spacing:.5px;padding:8px 12px;text-align:left;border-bottom:1px solid var(--border)}
+  td{padding:8px 12px;border-bottom:1px solid rgba(42,45,62,.5);vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  tr:hover td{background:rgba(255,255,255,.02)}
+  code{font-family:'SF Mono','Fira Code',monospace;font-size:11px;background:rgba(99,102,241,.1);color:var(--accent2);padding:1px 5px;border-radius:3px}
+  .method{font-family:monospace;font-size:10px;font-weight:700;padding:2px 6px;border-radius:3px;white-space:nowrap}
+  .m-get{background:rgba(16,185,129,.15);color:#34d399}
+  .m-post{background:rgba(59,130,246,.15);color:#60a5fa}
+  .m-put{background:rgba(245,158,11,.15);color:#fbbf24}
+  .m-patch{background:rgba(139,92,246,.15);color:#a78bfa}
+  .m-delete{background:rgba(239,68,68,.15);color:#f87171}
+  /* DETAILS */
+  details{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:12px;overflow:hidden}
+  summary{padding:14px 18px;cursor:pointer;font-weight:600;font-size:14px;color:#fff;display:flex;align-items:center;gap:8px;user-select:none;list-style:none}
+  summary::-webkit-details-marker{display:none}
+  summary::before{content:'▶';font-size:10px;color:var(--accent);transition:transform .2s;flex-shrink:0}
+  details[open] summary::before{transform:rotate(90deg)}
+  details[open] summary{border-bottom:1px solid var(--border)}
+  .details-body{padding:16px}
+  /* MERMAID */
+  .mermaid-wrap{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:24px;overflow-x:auto;margin-bottom:16px}
+  .mermaid{min-height:60px}
+  /* OVERVIEW */
+  .plane-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:16px}
+  @media(max-width:700px){.plane-grid{grid-template-columns:1fr}}
+  .plane-card{background:var(--card2);border:1px solid var(--border);border-radius:var(--radius);padding:16px}
+  .plane-card h4{margin:0 0 6px;font-size:13px}
+  .plane-card p{font-size:12px;color:var(--muted);margin:0}
+  .path-box{background:var(--card2);border-left:3px solid var(--accent);padding:12px 16px;border-radius:0 var(--radius) var(--radius) 0;font-family:monospace;font-size:12px;color:var(--accent2);margin-bottom:16px;overflow-x:auto;white-space:nowrap}
+  .counter{font-size:11px;color:var(--muted);background:var(--card2);padding:1px 6px;border-radius:10px;margin-left:auto}
+  .footer{font-size:11px;color:var(--muted);text-align:center;padding:20px 0;border-top:1px solid var(--border);margin-top:32px}
+</style>
+</head>
+<body>
+
+<!-- 側邊導覽列 -->
+<nav id="sidebar">
+  <div class="nav-logo">
+    <h1>⚡ Xparse 平台</h1>
+    <p>系統架構參考文件</p>
+  </div>
+  <div class="nav-section">導覽</div>
+  <a href="#overview" class="active"><span class="icon">🗺</span>系統概覽</a>
+  <a href="#architecture"><span class="icon">🏗</span>架構圖</a>
+  <a href="#relationships"><span class="icon">🔗</span>服務關係圖</a>
+  <a href="#services"><span class="icon">⚙️</span>服務詳細說明</a>
+  <div class="nav-section">API 參考</div>
+  <a href="#api-bustream"><span class="icon">🌐</span>bustream Gateway</a>
+  <a href="#api-iam"><span class="icon">🔐</span>xparse_iam</a>
+  <a href="#api-rm"><span class="icon">📦</span>Resource Manager</a>
+  <a href="#api-scheduler"><span class="icon">📋</span>Scheduler</a>
+  <a href="#api-fleet"><span class="icon">🚀</span>Fleet</a>
+  <a href="#api-nodemgr"><span class="icon">🖥</span>Node Manager</a>
+  <a href="#api-audit"><span class="icon">📊</span>Audit</a>
+  <a href="#api-frontend"><span class="icon">💻</span>前端 API</a>
+</nav>
+
+<!-- 主內容 -->
+<main>
+
+<!-- 1. 系統概覽 -->
+<section id="overview">
+  <h2>系統概覽</h2>
+  <p class="section-subtitle">Xparse 是什麼，以及各服務如何協作</p>
+
+  <div class="card">
+    <p style="font-size:14px;line-height:1.7;color:var(--text)">
+      <strong style="color:#fff">Xparse</strong> 是一個生產級 <strong>AI 推論 API 平台</strong>，介於你的應用程式與 LLM 供應商（OpenAI、Azure OpenAI、自建 vLLM）之間。它統一處理 API 金鑰驗證、政策決策、多模型路由、串流輸出、審計日誌、GPU 節點管理與 Sandbox 執行，並對外提供完整的 OpenAI 相容 API 介面。
+    </p>
+  </div>
+
+  <h3>四大平面架構</h3>
+  <div class="plane-grid">
+    <div class="plane-card">
+      <h4 style="color:var(--accent2)">🌐 Runtime Plane（執行平面）</h4>
+      <p><strong>bustream</strong>（Gateway :8000）—— 所有 LLM 推論請求的入口。負責 API 金鑰驗證、政策評估、准入控制、多後端路由、SSE 串流協調及審計事件發射。另包含 <strong>xparse_routing</strong>（進程內路由決策函式庫）與 <strong>xparse_resource_manager</strong>（共享端點容量佇列）。</p>
+    </div>
+    <div class="plane-card">
+      <h4 style="color:#34d399">🔐 Governance Plane（治理平面）</h4>
+      <p><strong>xparse_iam</strong>（:8010）—— 身分驗證、授權與組態的控制平面。管理 Tenant、Application、Group、API Key、Policy Bundle、Provider Credential 與 OIDC SSO。Console App（:3000）是此平面的前端管理界面。</p>
+    </div>
+    <div class="plane-card">
+      <h4 style="color:#fbbf24">🚀 Agent Platform Plane（代理平台平面）</h4>
+      <p><strong>xparse_fleet</strong>（:8090）負責 GPU 節點的編排排程。<strong>xparse_node_mgr</strong>（:8080）作為節點代理（agentd）運行於各 GPU 節點，管理 vLLM 容器、Sandbox 與 Agent App。<strong>xparse_container_platform</strong> 是供 node_mgr 呼叫的容器生命週期函式庫。<strong>xparse_scheduler</strong>（:8030）負責工作負載放置決策。</p>
+    </div>
+    <div class="plane-card">
+      <h4 style="color:#60a5fa">📊 Audit &amp; Observability（審計與可觀測性）</h4>
+      <p><strong>xparse_audit</strong>（:8001）是雙重角色的審計系統：嵌入 Gateway/IAM 的 Python SDK（非阻塞事件寫入至 JSONL），以及供 Console 查詢事件、統計報表、產製法律證據包的 REST API。與 Grafana Tempo 整合提供分散式追蹤。</p>
+    </div>
+  </div>
+
+  <h3>關鍵請求路徑</h3>
+  <div class="path-box">Client → bustream:8000 → IAM 驗證 → Policy/Admission 決策 → xparse_routing → StreamingManagerV3 → LLM Provider → Audit/Metrics → SSE 回傳 Client</div>
+
+  <h3>服務一覽</h3>
+  <table>
+    <thead><tr><th>服務</th><th>類型</th><th>埠號</th><th>主要職責</th></tr></thead>
+    <tbody>
+      <tr><td><code>Console App</code></td><td>前端（React + Vite）</td><td>3000</td><td>IAM、Fleet、Audit、Policy 的管理介面</td></tr>
+      <tr><td><code>bustream</code></td><td>Gateway</td><td>8000</td><td>LLM 請求協調器：認證、政策、路由、串流</td></tr>
+      <tr><td><code>xparse_audit</code></td><td>審計服務 + SDK</td><td>8001</td><td>事件寫入（SDK）+ 合規查詢 API</td></tr>
+      <tr><td><code>xparse_iam</code></td><td>IAM / 治理服務</td><td>8010</td><td>身分驗證、存取控制、憑證管理、政策</td></tr>
+      <tr><td><code>xparse_resource_manager</code></td><td>容量管理服務</td><td>8020</td><td>共享端點 Slot 管理（優先佇列 + Lease）</td></tr>
+      <tr><td><code>xparse_scheduler</code></td><td>放置排程器</td><td>8030</td><td>三階段工作負載放置演算法</td></tr>
+      <tr><td><code>xparse_node_mgr</code></td><td>節點代理（agentd）</td><td>8080</td><td>GPU 節點執行層：vLLM、Sandbox、Agent App</td></tr>
+      <tr><td><code>xparse_fleet</code></td><td>Fleet 控制平面</td><td>8090</td><td>節點生命週期、命令分派、部署協調</td></tr>
+      <tr><td><code>xparse_routing</code></td><td>進程內函式庫</td><td>—</td><td>策略型路由決策引擎（bustream 使用）</td></tr>
+      <tr><td><code>xparse_container_platform</code></td><td>進程內函式庫</td><td>—</td><td>容器生命週期 Use Case（node_mgr 使用）</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- 2. 架構圖 -->
+<section id="architecture">
+  <h2>架構圖</h2>
+  <p class="section-subtitle">依平面分組的服務節點與主要連線方向</p>
+  <div class="mermaid-wrap">
+    <div class="mermaid">
+graph TD
+    subgraph FE["🖥  前端層"]
+        Console["Console App\n:3000"]
+    end
+
+    subgraph Runtime["⚡ Runtime Plane（執行平面）"]
+        GW["bustream\nGateway :8000"]
+        RM["Resource Manager\n:8020"]
+        Routing["xparse_routing\n進程內函式庫"]
+    end
+
+    subgraph Gov["🔐 Governance Plane（治理平面）"]
+        IAM["xparse_iam\n:8010"]
+    end
+
+    subgraph Platform["🚀 Agent Platform Plane（代理平台）"]
+        Fleet["xparse_fleet\n:8090"]
+        Sched["xparse_scheduler\n:8030"]
+        NodeMgr["xparse_node_mgr\n:8080"]
+        CP["xparse_container_platform\n進程內函式庫"]
+    end
+
+    subgraph Obs["📊 Audit & Observability"]
+        Audit["xparse_audit\n:8001"]
+        Tempo["Grafana Tempo\n:4317/3200"]
+    end
+
+    subgraph Ext["☁️  外部服務"]
+        LLM["LLM 供應商\nOpenAI / Azure / vLLM"]
+        Keycloak["Keycloak\nOIDC IdP"]
+        Docker["Docker Engine\n/var/run/docker.sock"]
+        HF["HuggingFace\nHub"]
+        Redis["Redis\n:6379"]
+        Guardrails["NeMo Guardrails\n:8400"]
+    end
+
+    Console --> |"管理：Tenant、App\nPolicy、Credential"| IAM
+    Console --> |"查詢事件、統計\n證據包"| Audit
+    Console --> |"Fleet 狀態\n節點管理"| Fleet
+
+    GW --> |"每次請求\n驗證 API Key"| IAM
+    GW --> |"取得 / 釋放\n端點 Lease"| RM
+    GW --> |"每 30s 輪詢\n模型 Profile"| Fleet
+    GW --> |"Chat / Embed / TTS\nSSE 串流"| LLM
+    GW --> |"審計事件\nOTLP/gRPC"| Tempo
+    GW --> |"輸入/輸出\n安全檢查"| Guardrails
+    GW --> |"Token 配額\n計數"| Redis
+    GW --> |"路由決策\n進程內呼叫"| Routing
+
+    IAM --> |"OIDC Token\nJWKS 驗證"| Keycloak
+    IAM --> |"觸發容器\n放置部署"| Sched
+    IAM --> |"查詢 App\n端點 URL"| Fleet
+
+    Fleet --> |"Auth 驗證\nCatalog 同步 / 事件轉發"| IAM
+    Fleet --> |"命令下發\n透過心跳 ACK"| NodeMgr
+    Fleet --> |"容量報告\n中繼轉發"| Sched
+
+    NodeMgr --> |"每 30s 心跳\n回報命令結果"| Fleet
+    NodeMgr --> |"查詢 Skill\n掛載計畫"| IAM
+    NodeMgr --> |"容器 CRUD\n透過 aiodocker"| Docker
+    NodeMgr --> |"模型快照\n下載"| HF
+    NodeMgr --> |"容器 Use Case\n進程內呼叫"| CP
+
+    CP --> |"Docker API\nUnix Socket"| Docker
+
+    Sched --> |"查詢群組配額\n節點分配"| IAM
+    Sched --> |"下發部署命令\nFire-and-forget"| Fleet
+
+    RM --> |"審計事件\nSDK 寫入"| Audit
+
+    style FE fill:#1a1d27,stroke:#ec4899
+    style Runtime fill:#1a1d27,stroke:#6366f1
+    style Gov fill:#1a1d27,stroke:#10b981
+    style Platform fill:#1a1d27,stroke:#f59e0b
+    style Obs fill:#1a1d27,stroke:#3b82f6
+    style Ext fill:#16162a,stroke:#4b5563
+    </div>
+  </div>
+</section>
+
+<!-- 3. 服務關係圖 -->
+<section id="relationships">
+  <h2>服務關係圖</h2>
+  <p class="section-subtitle">每條服務間連線的資料流向與失敗模式</p>
+  <div class="mermaid-wrap">
+    <div class="mermaid">
+flowchart LR
+    subgraph FE["前端"]
+        Console["Console App\n:3000"]
+    end
+
+    subgraph Runtime["執行平面"]
+        GW["bustream\n:8000"]
+        RM["Resource Mgr\n:8020"]
+        Routing["xparse_routing"]
+    end
+
+    subgraph Gov["治理平面"]
+        IAM["xparse_iam\n:8010"]
+    end
+
+    subgraph Plat["代理平台"]
+        Fleet["xparse_fleet\n:8090"]
+        Sched["Scheduler\n:8030"]
+        NodeMgr["node_mgr\n:8080"]
+        CP["container_platform"]
+    end
+
+    subgraph Obs["可觀測性"]
+        Audit["xparse_audit\n:8001"]
+        Tempo["Grafana Tempo"]
+    end
+
+    subgraph Ext["外部服務"]
+        LLM["LLM 供應商"]
+        Keycloak["Keycloak"]
+        Docker["Docker Engine"]
+        HF["HuggingFace"]
+        Redis["Redis"]
+    end
+
+    Console -- "REST：CRUD 管理\nOIDC 登入" --> IAM
+    Console -- "REST：查詢事件\n統計 / 證據包" --> Audit
+    Console -- "REST：Fleet 狀態\n節點操作" --> Fleet
+
+    GW -- "POST gateway-validate\n失敗即中止" --> IAM
+    GW -- "POST acquire lease\n不可達則 Fail-open" --> RM
+    GW -- "GET model-profiles\n背景每 30s" --> Fleet
+    GW -- "HTTPS/SSE\n推論請求" --> LLM
+    GW -- "OTLP/gRPC\nFail-open" --> Tempo
+    GW -- "POST check_input\n失敗即封鎖(Fail-closed)" --> LLM
+    GW -- "Token 配額影子計數\nFail-open" --> Redis
+    GW -- "進程內 resolve()\n讀 StrategyConfig DB" --> Routing
+
+    IAM -- "GET JWKS\nTTL 1hr 快取" --> Keycloak
+    IAM -- "POST placements\n失敗即 503" --> Sched
+    IAM -- "GET app endpoint\nFail-open 回空" --> Fleet
+
+    Fleet -- "POST heartbeat\nAuth 驗證" --> IAM
+    Fleet -- "REST 代理\n服務命令" --> NodeMgr
+    Fleet -- "POST 容量報告\nFail-open" --> Sched
+
+    NodeMgr -- "POST heartbeat\n每 30s" --> Fleet
+    NodeMgr -- "GET skill mounts\nFail-open" --> IAM
+    NodeMgr -- "Docker API\nUnix Socket" --> Docker
+    NodeMgr -- "snapshot_download\nHTTPS" --> HF
+    NodeMgr -- "進程內 Use Case 呼叫" --> CP
+    CP -- "HTTP/1.1 over socket\n失敗即中止" --> Docker
+
+    Sched -- "GET 配額/分配\n失敗即中止" --> IAM
+    Sched -- "POST 部署\nFire-and-forget" --> Fleet
+
+    RM -- "AuditSink SDK\nFail-soft" --> Audit
+
+    style FE fill:#1e1929,stroke:#ec4899
+    style Runtime fill:#1a1d27,stroke:#6366f1
+    style Gov fill:#1a2420,stroke:#10b981
+    style Plat fill:#1e1e1a,stroke:#f59e0b
+    style Obs fill:#1a1d27,stroke:#3b82f6
+    style Ext fill:#16162a,stroke:#4b5563
+    </div>
+  </div>
+
+  <h3>失敗模式彙整</h3>
+  <table>
+    <thead><tr><th>連線</th><th>方向</th><th>失敗時行為</th></tr></thead>
+    <tbody>
+      <tr><td>Gateway → IAM 驗證</td><td>每次請求出向</td><td>Fail-fast → HTTP 401/500 回傳用戶端</td></tr>
+      <tr><td>Gateway → ResourceManager</td><td>每次推論出向</td><td>Fail-open → 跳過 Layer 2，記錄 RESOURCE_QUEUE_DEGRADED</td></tr>
+      <tr><td>Gateway → NeMo Guardrails</td><td>每次請求出向</td><td>Fail-CLOSED → HTTP 503（INV-139-4，絕不靜默放行）</td></tr>
+      <tr><td>Gateway → LLM 供應商</td><td>推論時出向</td><td>CircuitBreaker → RetryableWorker → HTTP 503</td></tr>
+      <tr><td>Gateway → Audit（OTel）</td><td>背景非同步</td><td>Fail-open → 事件靜默丟棄</td></tr>
+      <tr><td>IAM → Scheduler</td><td>部署時出向</td><td>Fail-fast → HTTP 503 硬失敗（ADR-121）</td></tr>
+      <tr><td>IAM → Fleet</td><td>查詢端點時出向</td><td>Fail-open → 回傳空 instance 清單</td></tr>
+      <tr><td>Fleet → IAM</td><td>心跳出向</td><td>Fail-open → 記錄 warning，下個週期重試</td></tr>
+      <tr><td>NodeMgr → IAM Skill Mounts</td><td>工作負載建立時</td><td>Fail-open → 回傳空 dict（INV-101-23）</td></tr>
+      <tr><td>Scheduler → Fleet 部署</td><td>放置時出向</td><td>Fire-and-forget → 記錄 warning，放置保持 PENDING</td></tr>
+      <tr><td>RM → Audit SDK</td><td>進程內背景</td><td>Fail-soft → 例外被吞掉（ADR-010）</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- 4. 服務詳細說明 -->
+<section id="services">
+  <h2>服務詳細說明</h2>
+  <p class="section-subtitle">每個服務的職責、功能說明與通訊對象</p>
+
+  <div class="card-grid">
+
+    <div class="service-card runtime">
+      <div class="service-badge badge-runtime">執行平面</div>
+      <div class="service-title">bustream — Gateway</div>
+      <div class="service-port">:8000 · HTTP/1.1 + SSE · FastAPI + Uvicorn</div>
+      <div class="service-desc">
+        整個 Xparse 平台的 LLM 請求協調器。所有推論請求皆流經此處：API 金鑰驗證、政策評估、准入控制、多後端路由（direct 或 twin 模式）、SSE 串流協調、Guardrail 強制執行、語意快取，以及審計事件發射。對外提供 OpenAI 相容 API。
+      </div>
+      <div class="service-links">
+        <strong>通訊對象：</strong>
+        <div class="link-item"><span class="link-arrow">→</span><span>xparse_iam — 每次請求驗證 API Key（HTTP，TTL 快取 30s）</span></div>
+        <div class="link-item"><span class="link-arrow">→</span><span>LLM 供應商 — OpenAI / Azure OpenAI / vLLM（HTTPS/SSE）</span></div>
+        <div class="link-item"><span class="link-arrow">→</span><span>xparse_resource_manager — 取得/釋放端點 Lease（可選）</span></div>
+        <div class="link-item"><span class="link-arrow">→</span><span>xparse_fleet — 每 30s 輪詢模型 Profile（背景）</span></div>
+        <div class="link-item"><span class="link-arrow">→</span><span>NeMo Guardrails sidecar — 輸入/輸出安全檢查（Fail-closed）</span></div>
+        <div class="link-item"><span class="link-arrow">→</span><span>Grafana Tempo — OTel 審計 Span（非同步，Fail-open）</span></div>
+        <div class="link-item"><span class="link-arrow">→</span><span>Redis — Token 配額影子計數（可選，Fail-open）</span></div>
+        <div class="link-item"><span class="link-arrow">↔</span><span>xparse_routing — 進程內路由決策（SQLite DB）</span></div>
+      </div>
+    </div>
+
+    <div class="service-card governance">
+      <div class="service-badge badge-governance">治理平面</div>
+      <div class="service-title">xparse_iam — 身分與存取管理</div>
+      <div class="service-port">:8010 · HTTP/REST · Django + Django Ninja</div>
+      <div class="service-desc">
+        治理與控制平面的核心。管理 Tenant、API Key、Application、Group、Provider Credential（加密儲存）、Policy Bundle/Binding、OIDC SSO 以及模型 Catalog。提供供 Gateway 使用的 API Key 驗證 + 憑證解密內部端點（最關鍵熱路徑），以及供 Scheduler 查詢資源配額的端點。
+      </div>
+      <div class="service-links">
+        <strong>通訊對象：</strong>
+        <div class="link-item"><span class="link-arrow">→</span><span>Keycloak — 取得 JWKS 驗證 OIDC Token（GET，TTL 1hr）</span></div>
+        <div class="link-item"><span class="link-arrow">→</span><span>xparse_scheduler — 觸發容器放置（POST，失敗即 503）</span></div>
+        <div class="link-item"><span class="link-arrow">→</span><span>xparse_fleet — 查詢 App Instance 端點（GET，Fail-open）</span></div>
+        <div class="link-item"><span class="link-arrow">←</span><span>Gateway — 驗證 API Key 並解密 Provider Credential</span></div>
+        <div class="link-item"><span class="link-arrow">←</span><span>Scheduler — 查詢群組配額、節點分配、資源需求</span></div>
+        <div class="link-item"><span class="link-arrow">←</span><span>Console App — 完整 CRUD 管理介面</span></div>
+      </div>
+    </div>
+
+    <div class="service-card platform">
+      <div class="service-badge badge-audit">容量平面</div>
+      <div class="service-title">xparse_resource_manager</div>
+      <div class="service-port">:8020 · HTTP/1.1 REST · FastAPI + Uvicorn · PyArmor</div>
+      <div class="service-desc">
+        管理共享 LLM 推論端點的並發 Slot 分配。Gateway 每次推論前必須先 acquire 一個 Lease，推論結束後 release。採用帶優先權的非同步佇列與 TTL 自動回收機制，防止單一端點被超量並發壓垮。透過 xparse_audit SDK 發射審計事件。
+      </div>
+      <div class="service-links">
+        <strong>通訊對象：</strong>
+        <div class="link-item"><span class="link-arrow">←</span><span>bustream Gateway — acquire/release Endpoint Lease（HTTP 長輪詢）</span></div>
+        <div class="link-item"><span class="link-arrow">→</span><span>xparse_audit — 審計事件透過 SDK（Fail-soft）</span></div>
+      </div>
+    </div>
+
+    <div class="service-card platform">
+      <div class="service-badge badge-platform">代理平台</div>
+      <div class="service-title">xparse_fleet — Fleet 控制平面</div>
+      <div class="service-port">:8090 · HTTP/REST · FastAPI + Uvicorn</div>
+      <div class="service-desc">
+        所有 GPU 節點的編排控制平面。維護節點狀態機（REGISTERED→ACTIVE），透過心跳 ACK 下發遠端命令，協調 Agent App 部署（含 Port 分配），管理模型部署，並將模型 Catalog 同步至 IAM。同時將節點回報的部署進度事件轉發給 IAM。
+      </div>
+      <div class="service-links">
+        <strong>通訊對象：</strong>
+        <div class="link-item"><span class="link-arrow">→</span><span>xparse_iam — Auth 驗證、Catalog 同步、事件轉發</span></div>
+        <div class="link-item"><span class="link-arrow">→</span><span>xparse_node_mgr — 服務代理呼叫（node_proxy.py）</span></div>
+        <div class="link-item"><span class="link-arrow">→</span><span>xparse_scheduler — 容量報告中繼（Fail-open）</span></div>
+        <div class="link-item"><span class="link-arrow">←</span><span>xparse_node_mgr — 每 30s 心跳</span></div>
+        <div class="link-item"><span class="link-arrow">←</span><span>Console App — Fleet 狀態與節點管理</span></div>
+        <div class="link-item"><span class="link-arrow">←</span><span>bustream — 每 30s 輪詢模型 Profile</span></div>
+      </div>
+    </div>
+
+    <div class="service-card platform">
+      <div class="service-badge badge-platform">代理平台</div>
+      <div class="service-title">xparse_node_mgr — 節點代理</div>
+      <div class="service-port">:8080 · HTTP/REST · FastAPI + Uvicorn（agentd）</div>
+      <div class="service-desc">
+        每台 GPU 節點上的執行層代理。定期向 Fleet 發送心跳（攜帶服務狀態、GPU 指標與命令結果），執行心跳 ACK 中帶回的遠端命令（部署工作負載、建立 Sandbox、上線 Agent App），管理 vLLM 容器生命週期，處理模型下載，以及執行節點驗證測試。
+      </div>
+      <div class="service-links">
+        <strong>通訊對象：</strong>
+        <div class="link-item"><span class="link-arrow">→</span><span>xparse_fleet — 每 30s 心跳 POST（Fail-open）</span></div>
+        <div class="link-item"><span class="link-arrow">→</span><span>xparse_iam — Skill 掛載計畫查詢（Fail-open）</span></div>
+        <div class="link-item"><span class="link-arrow">→</span><span>Docker Engine — 容器生命週期（aiodocker + docker SDK）</span></div>
+        <div class="link-item"><span class="link-arrow">→</span><span>HuggingFace Hub — 模型 snapshot_download（HTTPS）</span></div>
+        <div class="link-item"><span class="link-arrow">↔</span><span>xparse_container_platform — 進程內容器 Use Case 呼叫</span></div>
+      </div>
+    </div>
+
+    <div class="service-card platform">
+      <div class="service-badge badge-platform">代理平台</div>
+      <div class="service-title">xparse_scheduler — 放置排程器</div>
+      <div class="service-port">:8030 · HTTP/REST · FastAPI + Uvicorn</div>
+      <div class="service-desc">
+        三階段工作負載放置排程器：(1) 從 IAM 查詢資源需求，(2) 配額驗證，(3) 透過 MostRemainingStrategy 選擇節點。部署命令以 Fire-and-forget 方式下發至 Fleet。放置記錄在節點確認執行後從 PENDING 轉為 ACTIVE。
+      </div>
+      <div class="service-links">
+        <strong>通訊對象：</strong>
+        <div class="link-item"><span class="link-arrow">→</span><span>xparse_iam — 群組配額、節點分配、資源需求（Fail-fast）</span></div>
+        <div class="link-item"><span class="link-arrow">→</span><span>xparse_fleet — 部署應用（POST，Fire-and-forget）</span></div>
+        <div class="link-item"><span class="link-arrow">←</span><span>xparse_fleet — 容量心跳報告（POST /nodes/{id}/report）</span></div>
+        <div class="link-item"><span class="link-arrow">←</span><span>xparse_iam — 觸發放置（POST /scheduler/placements）</span></div>
+      </div>
+    </div>
+
+    <div class="service-card audit">
+      <div class="service-badge badge-audit">審計與可觀測性</div>
+      <div class="service-title">xparse_audit — 審計服務</div>
+      <div class="service-port">:8001 · HTTP/REST · FastAPI + Uvicorn（SDK + API）</div>
+      <div class="service-desc">
+        雙重角色系統：(1) 嵌入 Gateway 與 IAM 的 <strong>Python SDK</strong>，透過有界佇列 → AsyncSinkWriter → JSONL 檔案進行非阻塞事件寫入；(2) 供 Console 查詢事件、統計報表、管理證據包（含 SHA-256 完整性的 ZIP）及透過 Grafana Tempo Span 計算每用戶使用量的 <strong>REST API</strong>。
+      </div>
+      <div class="service-links">
+        <strong>通訊對象：</strong>
+        <div class="link-item"><span class="link-arrow">→</span><span>Grafana Tempo — 關聯查詢（HTTP GET，Fail-open）</span></div>
+        <div class="link-item"><span class="link-arrow">←</span><span>Console App — 查詢事件、統計、證據包（REST）</span></div>
+        <div class="link-item"><span class="link-arrow">←</span><span>bustream（SDK）— 審計事件透過 BoundedBuffer 寫入</span></div>
+        <div class="link-item"><span class="link-arrow">←</span><span>xparse_iam（SDK）— 身分驗證審計事件寫入</span></div>
+        <div class="link-item"><span class="link-arrow">←</span><span>xparse_resource_manager（SDK）— 容量審計事件寫入</span></div>
+      </div>
+    </div>
+
+    <div class="service-card library">
+      <div class="service-badge badge-library">進程內函式庫</div>
+      <div class="service-title">xparse_routing</div>
+      <div class="service-port">無 HTTP 埠 · Python package · SQLite/PostgreSQL</div>
+      <div class="service-desc">
+        bustream 專用的進程內路由決策函式庫。給定 RequestContext 與 ModelInfo 清單，套用五種路由策略之一（none/direct、smart_routing/twin、cost_first、energy_first、health_aware），回傳 ExecutionPlan。決策日誌以 Fire-and-forget 方式寫入 DB。
+      </div>
+      <div class="service-links">
+        <strong>使用方：</strong>
+        <div class="link-item"><span class="link-arrow">←</span><span>bustream Gateway — 每次請求呼叫 Resolver.resolve()</span></div>
+        <strong>路由策略：</strong>
+        <div class="link-item"><span class="link-arrow">•</span><span>none → direct（使用 models[0]）</span></div>
+        <div class="link-item"><span class="link-arrow">•</span><span>smart_routing → 複雜度分數 → direct 或 twin</span></div>
+        <div class="link-item"><span class="link-arrow">•</span><span>cost_first → 最低費用模型（附 viability guard）</span></div>
+        <div class="link-item"><span class="link-arrow">•</span><span>energy_first → 最低 joules/token（附 circuit breaker）</span></div>
+        <div class="link-item"><span class="link-arrow">•</span><span>health_aware → 健康分數加權的 twin 路由</span></div>
+      </div>
+    </div>
+
+    <div class="service-card library">
+      <div class="service-badge badge-library">進程內函式庫</div>
+      <div class="service-title">xparse_container_platform</div>
+      <div class="service-port">無 HTTP 埠 · Python package · Clean Architecture</div>
+      <div class="service-desc">
+        xparse_node_mgr 使用的容器生命週期管理函式庫（六邊形架構）。提供 10 個 Use Case：CreateSandbox、StartSandbox、StopSandbox、DestroySandbox、ExecInSandbox、GetSandboxStatus、ListSandboxes、CreateNetwork、RemoveNetwork、ListNetworks。強制執行無特權容器原則（ADR-103）。支援可選的 nsjail 逐次執行隔離。
+      </div>
+      <div class="service-links">
+        <strong>使用方：</strong>
+        <div class="link-item"><span class="link-arrow">←</span><span>xparse_node_mgr — sandbox_runtime 單例</span></div>
+        <strong>基礎設施：</strong>
+        <div class="link-item"><span class="link-arrow">→</span><span>Docker Engine — aiodocker 非同步 API（Unix Socket）</span></div>
+        <div class="link-item"><span class="link-arrow">→</span><span>nsjail binary — subprocess 執行隔離（可選）</span></div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- 5. 後端 API 參考 -->
+<section id="api-bustream">
+  <h2>後端 API 參考</h2>
+  <p class="section-subtitle">所有服務端點的方法、路徑、用途與內部呼叫</p>
+
+  <details open>
+    <summary id="api-bustream-inner">🌐 bustream — Gateway <span class="counter">埠號 8000</span></summary>
+    <div class="details-body">
+      <h4>健康檢查與可觀測性</h4>
+      <table>
+        <thead><tr><th>方法</th><th>路徑</th><th>用途</th><th>呼叫服務</th></tr></thead>
+        <tbody>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/</code></td><td>快速健康確認 + 功能標誌</td><td>—</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/health</code>、<code>/v1/health</code></td><td>詳細健康狀態：circuit breaker 狀態、路由 Profile、組態</td><td>—</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/metrics</code></td><td>Prometheus 指標抓取端點</td><td>—</td></tr>
+        </tbody>
+      </table>
+      <h4>核心推論 API</h4>
+      <table>
+        <thead><tr><th>方法</th><th>路徑</th><th>用途</th><th>呼叫服務</th></tr></thead>
+        <tbody>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/v1/chat/completions</code></td><td>OpenAI 相容 Chat Completions（串流 SSE + 非串流）。主要推論端點。</td><td>IAM 驗證、xparse_routing、ResourceManager、LLM 供應商、Guardrails、Audit</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/v1/embeddings</code></td><td>OpenAI 相容 Embedding 生成</td><td>IAM 驗證、LLM 供應商（embedding worker）</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/v1/audio/speech</code></td><td>Text-to-Speech（TTS），回傳 audio/mpeg 串流</td><td>IAM 驗證、LLM 供應商（TTS worker）</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/v1/audio/transcriptions</code></td><td>語音轉文字（Whisper），multipart/form-data 輸入</td><td>IAM 驗證、LLM 供應商（transcription worker）</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/v1/models</code></td><td>列出可用模型（OpenAI 相容格式）</td><td>IAM 驗證</td></tr>
+        </tbody>
+      </table>
+      <h4>Responses API（PRD-157）</h4>
+      <table>
+        <thead><tr><th>方法</th><th>路徑</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/v1/responses</code></td><td>OpenAI Responses API 介面</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/v1/responses/{id}</code></td><td>依 ID 取得 response 物件</td></tr>
+          <tr><td><span class="method m-delete">DEL</span></td><td><code>/v1/responses/{id}</code></td><td>刪除 response 物件</td></tr>
+        </tbody>
+      </table>
+      <h4>Signals 與 Agent 任務</h4>
+      <table>
+        <thead><tr><th>方法</th><th>路徑</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/v1/signals</code></td><td>使用者主動取消大型模型（TD-004 Phase 3）</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/v2/tasks</code></td><td>建立 Agent 任務（Phase 2-B）</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/v2/tasks/{task_id}</code></td><td>查詢任務狀態與上下文</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/v2/tasks/{task_id}/resume</code></td><td>恢復暫停中的任務</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/v2/tasks/{task_id}/cancel</code></td><td>取消執行中的任務</td></tr>
+        </tbody>
+      </table>
+      <h4>Admin（路由組態管理）</h4>
+      <table>
+        <thead><tr><th>方法</th><th>路徑</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/admin/routing/strategies</code></td><td>列出所有已註冊路由策略名稱</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/admin/routing/metrics</code></td><td>路由解析器指標快照</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/admin/routing/config/{app_id}</code></td><td>取得 Application 路由策略組態</td></tr>
+          <tr><td><span class="method m-put">PUT</span></td><td><code>/admin/routing/config/{app_id}</code></td><td>設定或更新 Application 路由策略組態</td></tr>
+          <tr><td><span class="method m-delete">DEL</span></td><td><code>/admin/routing/config/{app_id}</code></td><td>刪除 Application 路由組態</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/admin/routing/decisions/{app_id}</code></td><td>查詢最近 N 筆路由決策日誌</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </details>
+</section>
+
+<section id="api-iam">
+  <details open>
+    <summary>🔐 xparse_iam — IAM 服務 <span class="counter">埠號 8010</span></summary>
+    <div class="details-body">
+      <h4>內部端點（後端對後端，網路層信任，無需認證）</h4>
+      <table>
+        <thead><tr><th>方法</th><th>路徑</th><th>用途</th><th>呼叫方</th></tr></thead>
+        <tbody>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/iam/internal/gateway-validate</code></td><td>驗證 API Key + 解密 Provider Credential。回傳完整 AuthContext（含模型清單與政策）。</td><td>bustream Gateway</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/iam/internal/resolve-provider-credential</code></td><td>依 provider_code + tenant_uuid 取得明文 Provider Token</td><td>agentd（Artifact Store）</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/iam/internal/node-allocations</code></td><td>查詢租戶 GPU 節點分配清單</td><td>Scheduler</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/iam/internal/group-quotas/{uuid}</code></td><td>查詢 Group 資源配額（CPU/記憶體/GPU/容器數）</td><td>Scheduler</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/iam/internal/resource-profiles/{uuid}</code></td><td>查詢 Application 資源需求規格</td><td>Scheduler</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/iam/internal/deployment-count/{uuid}</code></td><td>查詢 Application 目前活躍的 Deployment 數量（INV-113-5）</td><td>Scheduler</td></tr>
+        </tbody>
+      </table>
+      <h4>Bootstrap 與連線測試</h4>
+      <table>
+        <thead><tr><th>方法</th><th>路徑</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/iam/bootstrap</code></td><td>系統一次性初始化：建立首個 Tenant + API Key，原文只回傳一次</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/iam/models/test-connection</code></td><td>測試 LLM Provider API Key 連線可用性（OpenAI / Azure / Anthropic / vLLM）</td></tr>
+        </tbody>
+      </table>
+      <h4>OIDC（SSO 單一登入）</h4>
+      <table>
+        <thead><tr><th>方法</th><th>路徑</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/iam/oidc/config</code></td><td>取得 OIDC 設定（issuer、client_id、enabled）— 無需認證</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/iam/oidc/exchange</code></td><td>用 Keycloak id_token 換取 Xparse session_key — 無需認證</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/iam/oidc/user-mappings</code></td><td>列出 OIDC 使用者對應</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/iam/oidc/user-mappings</code></td><td>建立 OIDC 使用者對應</td></tr>
+          <tr><td><span class="method m-patch">PATCH</span></td><td><code>/iam/oidc/user-mappings/{uuid}</code></td><td>更新 OIDC 使用者對應</td></tr>
+        </tbody>
+      </table>
+      <h4>Tenant、API Key、Application、Group</h4>
+      <table>
+        <thead><tr><th>方法</th><th>路徑</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/iam/tenants</code></td><td>列出所有 Tenant</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/iam/tenants</code></td><td>建立 Tenant</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/iam/tenants/{uuid}</code></td><td>取得 Tenant 詳細資訊</td></tr>
+          <tr><td><span class="method m-patch">PATCH</span></td><td><code>/iam/tenants/{uuid}</code></td><td>更新 Tenant</td></tr>
+          <tr><td><span class="method m-delete">DEL</span></td><td><code>/iam/tenants/{uuid}</code></td><td>刪除 Tenant</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/iam/api-keys</code></td><td>列出 API Key（不含原文）</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/iam/api-keys</code></td><td>建立新 API Key</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/iam/api-keys/{uuid}/revoke</code></td><td>撤銷 API Key</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/iam/api-keys/derive</code></td><td>從父 Key 衍生 Application 範圍金鑰</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/iam/api-keys/validate</code></td><td>驗證 API Key（Console 使用）</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/iam/applications</code></td><td>列出所有 Application</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/iam/applications</code></td><td>建立 Application（依類型：agent、plugin、generic）</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/iam/applications/{uuid}</code></td><td>取得 Application 詳細資訊</td></tr>
+          <tr><td><span class="method m-patch">PATCH</span></td><td><code>/iam/applications/{uuid}</code></td><td>更新 Application 組態、Image、環境變數</td></tr>
+          <tr><td><span class="method m-delete">DEL</span></td><td><code>/iam/applications/{uuid}</code></td><td>刪除 Application</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/iam/applications/{uuid}/deploy</code></td><td>觸發容器部署 → IAM 內部呼叫 Scheduler</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/iam/groups</code></td><td>列出所有 Group</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/iam/groups</code></td><td>建立 Group（含資源配額設定）</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/iam/groups/{uuid}</code></td><td>取得 Group 詳細資訊（成員、Policy、配額用量）</td></tr>
+          <tr><td><span class="method m-patch">PATCH</span></td><td><code>/iam/groups/{uuid}</code></td><td>更新 Group 配額與設定</td></tr>
+          <tr><td><span class="method m-delete">DEL</span></td><td><code>/iam/groups/{uuid}</code></td><td>刪除 Group</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/iam/groups/{uuid}/sidecar</code></td><td>建立 Group Sidecar 反向代理（ADR-136）→ IAM 呼叫 Fleet</td></tr>
+        </tbody>
+      </table>
+      <h4>模型、政策、Provider Credential</h4>
+      <table>
+        <thead><tr><th>方法</th><th>路徑</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/iam/models</code></td><td>列出可用 LLM 模型</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/iam/models</code></td><td>新增模型</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/iam/models/{uuid}/bind</code></td><td>將模型綁定至 Application（啟用路由至該供應商）</td></tr>
+          <tr><td><span class="method m-delete">DEL</span></td><td><code>/iam/models/{uuid}/bind</code></td><td>移除模型綁定</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/iam/policies/rate-limit</code></td><td>列出 Rate Limit Policy</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/iam/policies/rate-limit</code></td><td>建立 Rate Limit Policy（req/sec、burst、concurrency、queue）</td></tr>
+          <tr><td><span class="method m-patch">PATCH</span></td><td><code>/iam/policies/rate-limit/{uuid}</code></td><td>更新 Rate Limit Policy</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/iam/policies/guardrail</code></td><td>列出 Guardrail Policy（內容過濾、PII、封鎖關鍵字、Token 上限）</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/iam/policies/guardrail</code></td><td>建立 Guardrail Policy</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/iam/provider-credentials</code></td><td>列出 Provider Credential（不含明文）</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/iam/provider-credentials</code></td><td>建立並加密儲存 Provider API Key</td></tr>
+          <tr><td><span class="method m-patch">PATCH</span></td><td><code>/iam/provider-credentials/{uuid}</code></td><td>更新 Credential（重新加密）</td></tr>
+          <tr><td><span class="method m-delete">DEL</span></td><td><code>/iam/provider-credentials/{uuid}</code></td><td>刪除 Credential</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/iam/health</code></td><td>服務健康檢查</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </details>
+</section>
+
+<section id="api-rm">
+  <details open>
+    <summary>📦 xparse_resource_manager <span class="counter">埠號 8020</span></summary>
+    <div class="details-body">
+      <h4>核心 API（SPEC-086 §4）</h4>
+      <table>
+        <thead><tr><th>方法</th><th>路徑</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/resource/endpoints/{endpoint_id}/acquire</code></td><td>向指定端點申請一個容量 Slot（Lease）。無空位時進入優先佇列等待。回傳 lease_id + ttl_sec。參數：app_id、tenant_id、request_id、priority（0–10+）、timeout_ms。</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/resource/endpoints/{endpoint_id}/release</code></td><td>依 lease_id 釋放持有的 Lease，觸發佇列下一位晉升。具備冪等保護（已釋放時回傳 409）。</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/resource/endpoints/{endpoint_id}/status</code></td><td>查詢端點即時 Slot 使用量：max_concurrent、active_leases、available_slots、queue_depth。</td></tr>
+        </tbody>
+      </table>
+      <h4>管理 API（SPEC-086 §5）</h4>
+      <table>
+        <thead><tr><th>方法</th><th>路徑</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><span class="method m-put">PUT</span></td><td><code>/resource/endpoints/{endpoint_id}</code></td><td>新建或更新端點組態（upsert）：max_concurrent、max_queue_depth、queue_timeout_sec、lease_ttl_sec。</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/resource/endpoints</code></td><td>列出所有已註冊端點及其組態。供 Gateway EndpointResolver 每 60s 更新快取使用。</td></tr>
+          <tr><td><span class="method m-delete">DEL</span></td><td><code>/resource/endpoints/{endpoint_id}</code></td><td>刪除端點組態。若仍有 Active Lease 則拒絕（409）。</td></tr>
+        </tbody>
+      </table>
+      <h4>工具端點</h4>
+      <table>
+        <thead><tr><th>方法</th><th>路徑</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/healthz</code></td><td>存活探測，回傳 {"status":"ok"}</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/metrics</code></td><td>Prometheus 指標（active_leases、queue_depth、wait_seconds histogram 等）</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </details>
+</section>
+
+<section id="api-scheduler">
+  <details open>
+    <summary>📋 xparse_scheduler <span class="counter">埠號 8030</span></summary>
+    <div class="details-body">
+      <table>
+        <thead><tr><th>方法</th><th>路徑</th><th>用途</th><th>呼叫服務</th></tr></thead>
+        <tbody>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/scheduler/placements</code></td><td>請求工作負載放置。三階段：資源查詢 → 配額驗證 → 節點選擇（MostRemainingStrategy）。回傳 placement_uuid、node_id、status=PENDING。</td><td>IAM（配額/需求）、Fleet（部署）</td></tr>
+          <tr><td><span class="method m-delete">DEL</span></td><td><code>/scheduler/placements/{uuid}</code></td><td>釋放 Active 放置。狀態轉移：ACTIVE→RELEASING→RELEASED。下發 destroy 命令至 Fleet。</td><td>Fleet（destroy）</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/scheduler/placements/{uuid}/restart</code></td><td>重啟 RELEASED 狀態的放置，向 Fleet 發送 start_workload 命令（Fire-and-forget）。ADR-140。</td><td>Fleet（start）</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/scheduler/capacity/nodes</code></td><td>列出所有節點的五維容量向量（total/used/available：CPU、記憶體、磁碟、GPU、容器數）。</td><td>—</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/scheduler/capacity/groups/{uuid}/usage</code></td><td>Group 配額 vs 實際用量摘要。</td><td>—</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/scheduler/capacity/tenants/{uuid}/usage</code></td><td>Tenant 跨所有節點的總容量與用量。</td><td>—</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/scheduler/nodes/{node_id}/report</code></td><td>接收 Fleet 心跳中繼。更新節點容量與各 App 用量。工作負載節點確認後將 PENDING 轉為 ACTIVE。回傳 204。</td><td>—</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/healthz</code></td><td>存活探測，回傳 {"status":"ok"}</td><td>—</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </details>
+</section>
+
+<section id="api-fleet">
+  <details open>
+    <summary>🚀 xparse_fleet — Fleet 控制平面 <span class="counter">埠號 8090</span></summary>
+    <div class="details-body">
+      <h4>Fleet 狀態</h4>
+      <table>
+        <thead><tr><th>方法</th><th>路徑</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/v1/fleet/status</code></td><td>Fleet 彙總狀態：節點、GPU、服務、Sandbox 數量</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/v1/fleet/gpu</code></td><td>跨所有節點的 GPU 分配詳情</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/v1/fleet/model-profiles</code></td><td>Gateway 相容的模型 Profile 清單（bustream 每 30s 輪詢）</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/v1/fleet/routable-endpoints</code></td><td>所有 Active 節點的可路由服務端點</td></tr>
+        </tbody>
+      </table>
+      <h4>心跳</h4>
+      <table>
+        <thead><tr><th>方法</th><th>路徑</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/v1/fleet/heartbeat</code></td><td>節點心跳。接收服務/GPU/工作負載/容量資訊，回傳 pending_commands。命令分派迴圈的核心。</td></tr>
+        </tbody>
+      </table>
+      <h4>節點管理</h4>
+      <table>
+        <thead><tr><th>方法</th><th>路徑</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/v1/fleet/nodes</code></td><td>列出所有節點</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/v1/fleet/nodes/{id}</code></td><td>取得單一節點詳情</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/v1/fleet/nodes/{id}/approve</code></td><td>審核通過節點（REGISTERED → APPROVED）</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/v1/fleet/nodes/{id}/admit</code></td><td>跳過驗證直接認可（管理員用）</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/v1/fleet/nodes/{id}/reject</code></td><td>拒絕節點（ANY → REJECTED）</td></tr>
+          <tr><td><span class="method m-delete">DEL</span></td><td><code>/v1/fleet/nodes/{id}</code></td><td>移除動態節點</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/v1/fleet/nodes/{id}/validate</code></td><td>觸發節點驗證測試（→ VALIDATING）</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/v1/fleet/nodes/{id}/validation</code></td><td>取得驗證測試結果與裁決報告</td></tr>
+        </tbody>
+      </table>
+      <h4>部署與 App</h4>
+      <table>
+        <thead><tr><th>方法</th><th>路徑</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/v1/fleet/deploy</code></td><td>排程並建立模型部署命令</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/v1/fleet/undeploy</code></td><td>建立 undeploy 命令</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/v1/fleet/apps/{code}/deploy</code></td><td>部署 Agent App 副本（含自動 Port 分配，ADR-160）</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/v1/fleet/apps/{code}/endpoint</code></td><td>取得 Agent App 上游 URL（ADR-110）</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/v1/fleet/workloads/deploy</code></td><td>自動排程沙盒工作負載（CPU 優先選節點）</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/v1/fleet/nodes/{id}/deploy</code></td><td>在指定節點放置工作負載</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/v1/fleet/nodes/{id}/destroy</code></td><td>銷毀指定節點上的工作負載</td></tr>
+        </tbody>
+      </table>
+      <h4>Port 登錄與節點上線</h4>
+      <table>
+        <thead><tr><th>方法</th><th>路徑</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><span class="method m-put">PUT</span></td><td><code>/v1/fleet/nodes/{id}/port-pool</code></td><td>宣告節點 Port Pool</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/v1/fleet/nodes/{id}/ports/allocate</code></td><td>動態分配 Port（ADR-160）</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/v1/fleet/nodes/{id}/ports/allocations/{id}/bind</code></td><td>綁定 Port 分配（REQUESTED → BOUND）</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/v1/fleet/deploy-node/bootstrap</code></td><td>建立 Bootstrap 會話，產生節點安裝腳本</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/v1/fleet/deploy-node/bootstrap/{id}/claim</code></td><td>節點聲稱會話（附硬體指紋 + 激活碼）</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/v1/fleet/deploy-node/bootstrap/{id}/install.sh</code></td><td>一次性安裝腳本下載</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/v1/fleet/deploy-node/bootstrap/{id}/stream</code></td><td>SSE 即時上線進度追蹤</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </details>
+</section>
+
+<section id="api-nodemgr">
+  <details open>
+    <summary>🖥 xparse_node_mgr — 節點代理 <span class="counter">埠號 8080</span></summary>
+    <div class="details-body">
+      <h4>健康檢查與資訊</h4>
+      <table>
+        <thead><tr><th>方法</th><th>路徑</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/livez</code></td><td>匿名存活探測（Docker HEALTHCHECK 使用）</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/v1/health</code></td><td>需認證的健康檢查，含 endpoint_mode</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/v1/gpu/info</code></td><td>NVIDIA GPU 資訊（nvidia-smi + Prometheus fallback）</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/v1/catalog/models</code></td><td>從本地 YAML 清單列出 Catalog 模型</td></tr>
+        </tbody>
+      </table>
+      <h4>vLLM 服務管理</h4>
+      <table>
+        <thead><tr><th>方法</th><th>路徑</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/v1/services/apply</code></td><td>部署 vLLM docker compose 服務（Catalog 驅動或傳統 manifest）</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/v1/services</code></td><td>列出已部署服務（含即時容器狀態）</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/v1/services/{name}</code></td><td>取得服務詳情</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/v1/services/{name}/logs</code></td><td>容器日誌（tail 參數）</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/v1/services/delete</code></td><td>停止並刪除服務</td></tr>
+        </tbody>
+      </table>
+      <h4>Sandbox 生命週期</h4>
+      <table>
+        <thead><tr><th>方法</th><th>路徑</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/v1/sandboxes</code></td><td>建立並啟動 Sandbox 容器。Schema 層封鎖 privileged=true 及 cap_add（ADR-103）。</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/v1/sandboxes</code></td><td>列出所有 Sandbox（可依 tenant_id 過濾）</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/v1/sandboxes/{id}</code></td><td>取得 Sandbox 即時狀態</td></tr>
+          <tr><td><span class="method m-delete">DEL</span></td><td><code>/v1/sandboxes/{id}</code></td><td>停止並移除 Sandbox 容器</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/v1/sandboxes/{id}/exec</code></td><td>在 Sandbox 內執行命令（可選 nsjail 包裝）</td></tr>
+        </tbody>
+      </table>
+      <h4>模型管理</h4>
+      <table>
+        <thead><tr><th>方法</th><th>路徑</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/v1/resources</code></td><td>完整資源報告：GPU + 磁碟 + RAM</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/v1/resources/gpus</code></td><td>GPU 詳細資訊陣列</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/v1/models/estimate</code></td><td>從 HuggingFace config 估算 VRAM 需求</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/v1/models/download</code></td><td>啟動背景模型下載，回傳 202 + task_id</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/v1/models/downloads</code></td><td>列出所有下載任務</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/v1/models/downloads/{id}</code></td><td>查詢下載任務狀態</td></tr>
+          <tr><td><span class="method m-delete">DEL</span></td><td><code>/v1/models/downloads/{id}</code></td><td>取消下載並清理暫存檔案</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/v1/models/local</code></td><td>列出本地已下載模型</td></tr>
+          <tr><td><span class="method m-delete">DEL</span></td><td><code>/v1/models/local/{id}</code></td><td>刪除本地模型</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/v1/models/serve</code></td><td>啟動 vLLM 容器 Serving 本地模型</td></tr>
+          <tr><td><span class="method m-delete">DEL</span></td><td><code>/v1/models/serve/{id}</code></td><td>停止 vLLM Serving 實例</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/v1/models/instances</code></td><td>列出所有 Serving 實例</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/v1/models/instances/{id}</code></td><td>取得實例詳情</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/v1/models/instances/{id}/logs</code></td><td>容器日誌（tail + follow 參數）</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </details>
+</section>
+
+<section id="api-audit">
+  <details open>
+    <summary>📊 xparse_audit — 審計服務 <span class="counter">埠號 8001</span></summary>
+    <div class="details-body">
+      <h4>事件查詢</h4>
+      <table>
+        <thead><tr><th>方法</th><th>路徑</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/events/query</code></td><td>多條件查詢審計事件（event_types、tenant_id、trace_id、時間範圍、application_codes）。依角色自動過濾與紅線化。</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/events</code></td><td>列表查詢（POST /events/query 的 GET 便利版）</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/events/types</code></td><td>列出目前角色可存取的事件類型前綴</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/events/trace/{trace_id}</code></td><td>取得特定 Trace 的所有審計事件，並計算總 duration</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/events/{event_id}</code></td><td>依 ID 取得單一審計事件</td></tr>
+        </tbody>
+      </table>
+      <h4>統計報表</h4>
+      <table>
+        <thead><tr><th>方法</th><th>路徑</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/stats/summary</code></td><td>彙總統計：總請求數、錯誤數、Token 數、成本、延遲 P95、TTFT、TPS。支援 1h/6h/24h/7d/30d 時間範圍。</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/stats/time-series</code></td><td>指定指標（requests/tokens/errors/latency/ttft/tps）的時間序列，依時間範圍自動調整顆粒度。</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/stats/distribution</code></td><td>事件類型分佈與百分比（圓餅圖資料）</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/stats/top-applications</code></td><td>依請求數排序的頂級應用程式，含錯誤數/Token 數/成本細項</td></tr>
+        </tbody>
+      </table>
+      <h4>證據包管理</h4>
+      <table>
+        <thead><tr><th>方法</th><th>路徑</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><span class="method m-post">POST</span></td><td><code>/evidence/packages</code></td><td>建立證據包（非同步，立即回 202）。背景組裝含 SHA-256 完整性鏈的 ZIP 檔案。需 COMPLIANCE 或 SYSTEM 角色。</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/evidence/packages</code></td><td>列出證據包及其狀態（pending/generating/ready/failed）</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/evidence/packages/{id}</code></td><td>取得單一證據包中繼資料與狀態</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/evidence/packages/{id}/download</code></td><td>下載證據 ZIP 串流（manifest.json + audit_events.jsonl + integrity.json）</td></tr>
+          <tr><td><span class="method m-delete">DEL</span></td><td><code>/evidence/packages/{id}</code></td><td>刪除證據包（204）</td></tr>
+        </tbody>
+      </table>
+      <h4>使用量分析與健康檢查</h4>
+      <table>
+        <thead><tr><th>方法</th><th>路徑</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/usage/per-user</code></td><td>依使用者彙總 LLM 消耗（透過 Grafana Tempo Span 關聯）</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/usage/per-user/time-series</code></td><td>特定使用者的 Token/請求/成本時間序列</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/usage/correlation-health</code></td><td>Sidecar-Gateway Span 關聯健康度：匹配率、平均置信度、Tempo 可用性</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/health</code></td><td>完整健康狀態（200 healthy / 207 degraded / 503 unhealthy）</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/health/live</code></td><td>Kubernetes liveness probe</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/health/ready</code></td><td>Kubernetes readiness probe</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>/diagnostics/store</code></td><td>EventStore 內部狀態：重載次數、掃描檔案數、已載入事件數</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </details>
+</section>
+
+<!-- 6. 前端 API 參考 -->
+<section id="api-frontend">
+  <h2>前端 API 參考</h2>
+  <p class="section-subtitle">Console App（:3000）所消費的所有 API，依功能分組</p>
+
+  <details open>
+    <summary>🔐 身分驗證與 OIDC</summary>
+    <div class="details-body">
+      <table>
+        <thead><tr><th>方法</th><th>端點</th><th>說明</th></tr></thead>
+        <tbody>
+          <tr><td><span class="method m-get">GET</span></td><td><code>IAM /iam/oidc/config</code></td><td>取得 OIDC 設定（issuer、client_id）。無需認證。Console 啟動時讀取以啟用 SSO。</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>IAM /iam/oidc/exchange</code></td><td>用 Keycloak id_token 換取 Xparse session_key，回傳 tenant_uuid、display_name。</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>IAM /iam/api-keys/validate</code></td><td>驗證 API Key（直接 Token 登入備援）</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>IAM /iam/bootstrap</code></td><td>首次系統初始化：建立初始 Tenant + API Key（一次性）</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>IAM /iam/models/test-connection</code></td><td>測試 LLM Provider API Key 連線（OpenAI、Azure、Anthropic、vLLM）</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </details>
+
+  <details open>
+    <summary>🏢 Tenant 與 API Key 管理</summary>
+    <div class="details-body">
+      <table>
+        <thead><tr><th>方法</th><th>端點</th><th>說明</th></tr></thead>
+        <tbody>
+          <tr><td><span class="method m-get">GET</span></td><td><code>IAM /iam/tenants</code></td><td>列出系統中所有 Tenant</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>IAM /iam/tenants</code></td><td>建立新 Tenant</td></tr>
+          <tr><td><span class="method m-patch">PATCH</span></td><td><code>IAM /iam/tenants/{uuid}</code></td><td>更新 Tenant 設定</td></tr>
+          <tr><td><span class="method m-delete">DEL</span></td><td><code>IAM /iam/tenants/{uuid}</code></td><td>刪除 Tenant</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>IAM /iam/api-keys</code></td><td>列出 API Key（不顯示明文）</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>IAM /iam/api-keys</code></td><td>建立新 API Key</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>IAM /iam/api-keys/{uuid}/revoke</code></td><td>撤銷指定 API Key</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>IAM /iam/api-keys/derive</code></td><td>從父 Key 衍生 Application 範圍金鑰</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </details>
+
+  <details open>
+    <summary>📱 Application 管理</summary>
+    <div class="details-body">
+      <table>
+        <thead><tr><th>方法</th><th>端點</th><th>說明</th></tr></thead>
+        <tbody>
+          <tr><td><span class="method m-get">GET</span></td><td><code>IAM /iam/applications</code></td><td>列出所有 Application</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>IAM /iam/applications</code></td><td>建立 Application（依類型：agent、plugin、generic）</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>IAM /iam/applications/{uuid}</code></td><td>Application 詳情（含資源需求、部署狀態）</td></tr>
+          <tr><td><span class="method m-patch">PATCH</span></td><td><code>IAM /iam/applications/{uuid}</code></td><td>更新 Application 組態、Image、環境變數</td></tr>
+          <tr><td><span class="method m-delete">DEL</span></td><td><code>IAM /iam/applications/{uuid}</code></td><td>刪除 Application</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>IAM /iam/applications/{uuid}/deploy</code></td><td>觸發容器部署（IAM 內部呼叫 Scheduler）</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>IAM /iam/models</code></td><td>列出可綁定的 LLM 模型</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>IAM /iam/models/{uuid}/bind</code></td><td>將模型綁定至 Application（啟用路由至該供應商）</td></tr>
+          <tr><td><span class="method m-delete">DEL</span></td><td><code>IAM /iam/models/{uuid}/bind</code></td><td>移除模型綁定</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </details>
+
+  <details open>
+    <summary>👥 Group 與存取管理</summary>
+    <div class="details-body">
+      <table>
+        <thead><tr><th>方法</th><th>端點</th><th>說明</th></tr></thead>
+        <tbody>
+          <tr><td><span class="method m-get">GET</span></td><td><code>IAM /iam/groups</code></td><td>列出 Group（含成員數與配額）</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>IAM /iam/groups</code></td><td>建立 Group（含資源配額設定）</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>IAM /iam/groups/{uuid}</code></td><td>Group 詳情（成員、Policy、配額用量）</td></tr>
+          <tr><td><span class="method m-patch">PATCH</span></td><td><code>IAM /iam/groups/{uuid}</code></td><td>更新 Group 配額與設定</td></tr>
+          <tr><td><span class="method m-delete">DEL</span></td><td><code>IAM /iam/groups/{uuid}</code></td><td>刪除 Group</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>IAM /iam/groups/{uuid}/sidecar</code></td><td>建立 Group Sidecar 反向代理（ADR-136）→ IAM 呼叫 Fleet</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>IAM /iam/oidc/user-mappings</code></td><td>列出 OIDC 使用者 → Tenant 對應</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>IAM /iam/oidc/user-mappings</code></td><td>建立使用者對應（OIDC subject → Xparse Tenant）</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </details>
+
+  <details open>
+    <summary>📜 Policy 與 Provider Credential</summary>
+    <div class="details-body">
+      <table>
+        <thead><tr><th>方法</th><th>端點</th><th>說明</th></tr></thead>
+        <tbody>
+          <tr><td><span class="method m-get">GET</span></td><td><code>IAM /iam/policies/rate-limit</code></td><td>列出 Rate Limit Policy（req/sec、burst、concurrency、queue）</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>IAM /iam/policies/rate-limit</code></td><td>建立 Rate Limit Policy</td></tr>
+          <tr><td><span class="method m-patch">PATCH</span></td><td><code>IAM /iam/policies/rate-limit/{uuid}</code></td><td>更新 Rate Limit Policy</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>IAM /iam/policies/guardrail</code></td><td>列出 Guardrail Policy（內容過濾、PII、封鎖關鍵字、Token 上限）</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>IAM /iam/policies/guardrail</code></td><td>建立 Guardrail Policy</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>IAM /iam/provider-credentials</code></td><td>列出 Provider Credential（不含明文）</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>IAM /iam/provider-credentials</code></td><td>建立並加密儲存 Provider API Key（OpenAI / Azure / Anthropic / vLLM）</td></tr>
+          <tr><td><span class="method m-patch">PATCH</span></td><td><code>IAM /iam/provider-credentials/{uuid}</code></td><td>更新 Credential（重新加密）</td></tr>
+          <tr><td><span class="method m-delete">DEL</span></td><td><code>IAM /iam/provider-credentials/{uuid}</code></td><td>刪除 Credential</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </details>
+
+  <details open>
+    <summary>📊 審計事件與統計報表</summary>
+    <div class="details-body">
+      <table>
+        <thead><tr><th>方法</th><th>端點</th><th>說明</th></tr></thead>
+        <tbody>
+          <tr><td><span class="method m-post">POST</span></td><td><code>Audit /events/query</code></td><td>查詢審計事件（含過濾）。基於角色的存取控制：COMPLIANCE 看全部，SRE 看系統/可觀測性，APP_OWNER 看自己 Tenant。</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>Audit /events/trace/{trace_id}</code></td><td>查看特定推論請求的所有 Trace 事件</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>Audit /stats/summary</code></td><td>儀表板 KPI：請求數、錯誤率、Token 數、成本、延遲、TTFT。支援 1h/6h/24h/7d/30d。</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>Audit /stats/time-series</code></td><td>隨時間變化的請求/Token/錯誤/延遲折線圖資料</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>Audit /stats/distribution</code></td><td>事件類型分佈（圓餅圖用途）</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>Audit /stats/top-applications</code></td><td>依請求數排序的頂級 Application（含成本/錯誤細項）</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>Audit /usage/per-user</code></td><td>透過 Tempo Span 關聯的每用戶 LLM 消耗量</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>Audit /evidence/packages</code></td><td>要求產製合規/法律證據包</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>Audit /evidence/packages</code></td><td>列出證據包及其產製狀態</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>Audit /evidence/packages/{id}/download</code></td><td>下載含 SHA-256 完整性證明的證據 ZIP</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </details>
+
+  <details open>
+    <summary>🚀 Fleet 與節點操作</summary>
+    <div class="details-body">
+      <table>
+        <thead><tr><th>方法</th><th>端點</th><th>說明</th></tr></thead>
+        <tbody>
+          <tr><td><span class="method m-get">GET</span></td><td><code>Fleet /v1/fleet/status</code></td><td>Fleet 儀表板：節點總數、GPU 數、服務數、Sandbox 數</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>Fleet /v1/fleet/nodes</code></td><td>列出所有 GPU 節點與狀態機狀態</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>Fleet /v1/fleet/nodes/{id}/approve</code></td><td>審核通過已註冊節點（REGISTERED → APPROVED）</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>Fleet /v1/fleet/nodes/{id}/admit</code></td><td>跳過驗證直接認可節點（管理員）</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>Fleet /v1/fleet/nodes/{id}/validate</code></td><td>觸發節點驗證測試</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>Fleet /v1/fleet/nodes/{id}/validation</code></td><td>取得驗證測試結果與裁決</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>Fleet /v1/fleet/deploy-node/bootstrap</code></td><td>啟動節點上線流程：產生安裝腳本與 Bootstrap 會話</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>Fleet /v1/fleet/deploy-node/bootstrap/{id}/stream</code></td><td>SSE 串流：即時上線進度</td></tr>
+          <tr><td><span class="method m-post">POST</span></td><td><code>Fleet /v1/fleet/apps/{code}/deploy</code></td><td>將 Agent App 副本部署至 Fleet 節點</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>Fleet /v1/fleet/apps/{code}/endpoint</code></td><td>取得 Agent App 上游端點 URL（路由用途）</td></tr>
+          <tr><td><span class="method m-get">GET</span></td><td><code>Fleet /v1/fleet/catalog/models</code></td><td>瀏覽模型 Catalog（IAM L2）</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </details>
+
+  <div class="footer">
+    Xparse 系統架構參考文件 — 產生日期 2026-05-31 · 10 個服務 · 約 135 個 API 端點
+  </div>
+</section>
+
+</main>
+
+<script>
+  // 初始化 Mermaid
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'dark',
+    themeVariables: {
+      background: '#1a1d27',
+      primaryColor: '#2d3158',
+      primaryTextColor: '#e2e8f0',
+      primaryBorderColor: '#4a4e6e',
+      lineColor: '#6366f1',
+      secondaryColor: '#1e2133',
+      tertiaryColor: '#16162a',
+      edgeLabelBackground: '#1a1d27',
+      nodeTextColor: '#e2e8f0',
+      clusterBkg: '#1a1d27',
+      clusterBorder: '#2a2d3e',
+      titleColor: '#e2e8f0',
+      labelBoxBkgColor: '#1a1d27',
+      labelBoxBorderColor: '#4a4e6e',
+    },
+    flowchart: { htmlLabels: true, curve: 'basis', padding: 20 },
+    securityLevel: 'loose'
+  });
+
+  // 導覽列 Scroll-spy
+  const navLinks = document.querySelectorAll('nav a');
+
+  function setActive(id) {
+    navLinks.forEach(a => {
+      const href = a.getAttribute('href').replace('#', '');
+      a.classList.toggle('active', href === id);
+    });
+  }
+
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) setActive(e.target.id);
+    });
+  }, { rootMargin: '-10% 0px -80% 0px' });
+
+  document.querySelectorAll('section[id]').forEach(s => observer.observe(s));
+
+  // 平滑滾動
+  navLinks.forEach(link => {
+    link.addEventListener('click', e => {
+      e.preventDefault();
+      const id = link.getAttribute('href').replace('#', '');
+      const el = document.getElementById(id) || document.getElementById(id + '-inner');
+      if (el) {
+        const target = el.closest('section') || el;
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        setActive(id);
+      }
+    });
+  });
+</script>
+</body>
+</html>
