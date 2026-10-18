@@ -1,9 +1,180 @@
 # vLLM prefix cache（前情共用）：已完成的工作與待修清單
 
-- **狀態日期**：2026-10-17
-- **基準**：`futurenestit/xparse` origin/main `e329c51c2`
+- **狀態日期**：2026-10-18
+- **基準**：`futurenestit/xparse` origin/main `cd1b1e84b`（§1–§8 原文以 2026-10-17 的 `e329c51c2` 為準）
 - **讀者**：接手修理剩餘問題的 agent／工程師
-- **一句話**：快取在 main 上已經修好，本地實測重用率約 99%。還沒部署到 rel 和 prod。另有 13 張 issue 待修，加上幾件不屬於 issue 的收尾工作（§4）。
+- **一句話**：
+  - 快取在 main 上已經修好，本機實測重用率約 99%。
+  - 13 張 issue 修好 12 張；W11（聊天機器人打 Claude 自動快取）已 merge，並在本機驗過。
+  - 範圍外的發現也處理了一批，見 §0a。
+  - **這些都還沒部署到 rel 和 prod**；本機 stack 也還跑在 `8133bb33e`，所以本機看不到今天 merge 的修正。
+
+---
+
+## 0a. 2026-10-18 狀態更新（先讀）
+
+- 13 張 issue 已修好 12 張並 merge 到 `main`。#6725 只剩「全新預設安裝」那一項驗收，Peter 決定留到下一次真的安裝，所以 issue 還開著。
+- W11（聊天機器人打 Claude 拿不到快取）的定性已由 owner 推翻，改為預設自動快取。文件、IAM、gateway、Console 四片都已 merge，2026-10-18 本機端到端通過；剩 rel 驗收與發佈。
+- 看板 #6 的卡在 issue 關閉時已自動移到 Done。
+
+**還沒做完的事**（2026-10-18 晚）
+
+1. **部署**（要 Peter 授權）：先 rel 再 prod；IAM 先上，gateway 與 Console 後上。這批要一起帶上哪些變更、有什麼要注意，見下方「部署要多注意的」。
+2. **rel 驗收**：快取的 E2E（§4 W2），以及 W11 的 SPEC-331 CT-331-19。通過後的發佈 PR 刪掉 ADR-473 entry `prefix_cache_sharing_scope`（W3）與 `auto_prompt_cache`，兩端 call site 一起刪。
+3. **#6725**：下一次全新預設安裝時，照 runbook 跑三個 CLI。
+4. **手冊**：Xparse-Manual#45、#46 等 maintainer 審核，合併後推進產品端的 gitlink。見下方「手冊」。
+5. **開著的 issue**：
+   - 本批：#6774、#6775；
+   - 第二輪 agent 實測開出的：#6785–#6788、#6790–#6794。
+6. **範圍外發現還沒開 issue 的**：第 6–8、10–15 項。
+7. **#3 還有一點沒驗證**：GPT-5.6 以前的 OpenAI 模型，冷請求會不會回報寫入數。它決定新的計價規則會影響多少既有的價格段；要驗證，需要一把能打這些模型的 key。
+8. **已部署環境的自簽憑證要重簽**（#6724，`agent-cli-setup.md` §0）。本機 ingress 的憑證也還是 `CA:TRUE`，Codex 仍無法直連 `https://localhost:3000`。
+
+**13 張 issue**
+
+| Issue | PR | merge commit | 重點 |
+|---|---|---|---|
+| #6724 | #6747 | `3f6343535` | 四個產生器改成 `CA:FALSE`＋`serverAuth`，**不帶 keyUsage**：帶了之後 OpenCode 與 LibreSSL client 會失敗（實測）。經臨時的第二個 ingress 實測 Codex 可完成 `/v1/responses` |
+| #6725 | #6749 | `65496a8d2` | runbook 已寫；**issue 仍開**，等全新預設安裝照 runbook 跑三個 CLI |
+| #6726 | #6738 | `8eba058ee` | 「本輪」改為最後一則 assistant 之後的訊息。switch on 的驗收由協調者翻 gemma 開關實測（`f6726-switch-on-1792247289`：`tool_result_turn=True rotation=on applied=True`），測完改回 `false` |
+| #6727 | #6742 | `f1c6e410a` | 只在 `/v1/messages`、`context_overflow` 時改用 Anthropic 措辭。input 估算用 `estimate_for_client`（含 assistant 工具呼叫）；Peter 若要改回治理估算，改一行即可 |
+| #6728 | #6749 | `65496a8d2` | 重跑通過：Claude Code 2.1.302、60k gemma、31903 token、exit 0（`eee8d88a-bae4-49f3-a8c1-fcd654195b12`） |
+| #6729 | #6737 | `d3e49c3a5` | SPEC-308 §9.15 |
+| #6730 | #6745 | `049360613` | Peter 選 (a)：沒帶 `stream`、`false` 或 `null` 回非串流 JSON；`stream` 不是布林值回 400 `invalid_type`（SPEC-307 RF-21） |
+| #6731 | #6743 | `aa31dbe47` | billing 區塊在 OpenAI 自家 wire 也在 egress 剝除；ADR-055 Rev.5 |
+| #6732 | #6752 | `44dc4b759` | `/v1/messages` 回 `output_tokens_details.thinking_tokens` |
+| #6733 | #6739 | `3595a9b56` | 只改對外的 count_tokens；治理估算逐位元不變 |
+| #6734 | #6740 | `15c6c9b53` | DeepSeek 的推理封進 `xpenv1`（新 block kind `reasoning_text`），同 provider、同 credential、帶 `include` 才還原 |
+| #6735 | #6741 | `1a3fd2480` | `finish_reason` 只在 done chunk 送一次，`xparse` 也放在 done chunk。沒用 `choices: []`，因為 OpenAI SDK README 的串流迴圈會 `IndexError` |
+| #6736 | #6746 | `be75f541b` | BuStream 欄位搬到 `xparse`，EVENT_STREAM_SPEC 升 2.0。**對自己讀 `chunk["metadata"]` 的客戶整合是 breaking change**，發佈時要通知 BD／客戶 |
+
+**2026-10-18 本機回歸（更新後的本機 stack，main `8133bb33e`）**：報告在 `/Users/peter/Desktop/testing/agent-e2e-regression-2026-10-18/REPORT.md`。
+
+- 三個 CLI × 四模型 × 兩次標準任務，24 次全部 exit 0，133 個請求、0 個失敗。
+- 雲端模型 9 組的測試全部通過。gemma 的失敗當時歸為模型能力，與 10-17 相同。**（2026-10-18 更正：判斷錯了。後來的 agent 實測找到根因：vLLM 0.24.0 的 gemma4 reasoning parser 在串流模式下，把沒有 thinking 標記的回答整段歸成 reasoning；gateway 對上游一律串流，所以工具輪次之後的回答消失。見 #6788。）**
+- #6726：Claude Code × gemma 的 tool 輪次判為 `true`，fingerprint 不變，第 2 輪之後重用約 99%。
+- #6734：Codex × deepseek 沒有任何 reasoning 被丟掉。
+- W11 端到端通過：聊天機器人打 Claude，第 2 輪起約 99%；應用關閉時不加任何標記，記為 `app_off`。
+
+**W11（ADR-382 Amendment D、PRD-362、SPEC-331）**
+
+- 決定（Peter，2026-10-17）：預設自動、虧了會停，既有應用一併適用。
+- 範圍：OpenAI 協定入口（chat、Responses）打 Anthropic 直連的 Claude，client 沒標記時：
+  - system 前綴一律標；
+  - 多輪才加 top-level 自動快取；
+  - 應用可關；
+  - 讀寫 token 比低於 0.28 時暫停 60 分鐘。
+- 實測依據：不帶標記的聊天機器人打 Claude 每輪都是 0；只多帶 `prompt_cache_key` 就約 99%，5 輪輸入 −67%。證據在 `/Users/peter/Desktop/testing/claude-chatbot-cache/`。
+
+| 片 | PR | 狀態 |
+|---|---|---|
+| 文件：RESEARCH、PRD-362、ADR-382 Amendment D、SPEC-331，連動 PRD-299／ADR-300／SPEC-312 | #6744 `af9f6697b` | merged |
+| S1 IAM：`Application.auto_prompt_cache_enabled`（migration 0395 → 0393）、ADR-473 `auto_prompt_cache`（stage=rel）、投影生效值 | #6748 `c94528aaf` | merged |
+| S2 gateway：決策、紀錄、breaker（`gateway/auto_prompt_cache/`） | #6750 `c0bf18561` | merged；live（第二個 gateway＋只設 `peter` 的測試 shim）：5 輪 chat 第 2–5 輪 99.0–99.5%、輸入 −66.7%；Responses 5 輪 98.9–99.4%；system 每次不同時第 20 個請求跳閘、之後不帶標記。跳閘紀錄是 5 個平鋪的 `prompt_cache_auto_breaker*` key（稽核只收純量 extra），SPEC-331 CT-331-13 已勘誤（#6770 `f5183bd3e`） |
+| S3 Console：開關（中文標籤依 glossary 寫成「自動 Prompt Caching（Claude）」） | #6751 `37afc34e6` | merged；手冊頁由 Xparse-Manual#45 落地（含 #44），等 maintainer |
+
+**部署（W1）要多注意的**
+
+- **順序**：IAM 先、gateway 後（#6726、W11、#6779 都依賴）。migration 0392、0393、0395 都只新增欄位。
+- **這批要帶上的**：快取（§2）、13 張 issue 的修正、W11、#6776、#6777、#6779、#6797。
+- **#6779（快取寫入計價改成 B2）**：
+  - IAM 一定要先上。gateway 先上的話，chat 開始記寫入數，舊 IAM 會把沒寫寫入價的價格段算成 0。
+  - IAM 在查詢時才計價，所以過去的用量會照新規則重算：2026-10-01 起，`/v1/responses` 打 OpenAI／Azure、而價格段沒寫寫入價的那些用量，會從 0 改成 input 價。
+  - 這些 tenant 本期的 Budget 用量會跳升；接近上限的 tenant，下一個請求可能被擋（400 `cost_budget_exhausted`）。
+  - 部署前在各環境跑 `inventory_pricing_schema`，看 `cache_write_unstated_vs_reference`，就知道影響多大。本機是 0。
+  - 回退就是版本回退：沒有 migration，也不改資料。
+  - Audit 計價引擎的同步改動是 Xparse-Audit#206（已 merge），gitlink 由 #6779 推進。
+- **#6736 是 breaking change**：chat 串流的 BuStream 欄位搬到 `xparse` 底下。自己讀 `chunk["metadata"]` 的客戶整合會受影響，發佈時要通知 BD 與客戶。
+- **#6695／#6699**（不在這批）：原本的 `0394` 與 main 上的 `0395 → 0393` 會形成兩個 leaf。2026-10-18 確認作者已改成 `0396 → 0395`，不再撞號；兩個 PR 仍開著。
+- **W11**：要在 rel 跑 SPEC-331 CT-331-19 的端到端驗收；通過後的發佈 PR 刪掉 ADR-473 entry `auto_prompt_cache`，兩端 call site 一起刪。
+- **憑證**：已部署環境的自簽憑證仍是 `CA:TRUE`，Codex 連不上，要照 `agent-cli-setup.md` §0 重新簽發。
+
+**本文件的修正**（§3 原本的做法有漏洞，以下為準）
+
+- §3.1 的 `grep CacheSaltGenerator` 在 `docker logs` 裡看不到，不能用來確認 salt 有開。改看 `cache_salt_decision` 有沒有 fingerprint。
+- §3.2 的 `docker run` 少了下列 mount 或設定：
+  - `-v <scratch>/audit:/app/var/audit`：不加，稽核事件不會落盤。不要 mount 主 checkout 的 `var/audit`。
+  - 主 checkout 的 `apps/guardrails/xparse_guardrail` → `/app/xparse_guardrail:ro`。
+  - 主 checkout 的 `install_service/configs/model_profiles.yaml` → `/app/configs/model_profiles.yaml:ro`（live gateway 掛的就是這一份）。
+  - live gateway 的 `XPARSE_TRANSLATION_ENVELOPE_SECRET` 是空的，金鑰在 `xparse_xparse-routing-db` volume 上，所以第二個 gateway 的翻譯信封是**關的**。依賴信封的驗證要傳一把一次性金鑰（格式見 `docs/runbooks/translation-envelope-secret.md`），不要 mount 那個 volume。
+  - image 內建的 healthcheck 打 8443，所以會顯示 unhealthy；`/health` 回 200 就可以用。
+- perf 的 `decisions.py` 與 `probe_gateway_multiturn.py::salt_decisions` 還讀 Rev.1 的欄位（`cache_salt_mode`、`tool_call_guard_applied`），遇到現在的事件會出錯。
+- 共用的 scratchpad 被多個 agent 同時寫過，各組要用自己的子目錄。
+
+**範圍外的新發現**（第 1–5、9 項已於 2026-10-18 處理，見清單後的表；其餘還沒開 issue，要開請走 `/doc-issue`）
+
+1. 直連 gateway 時，Codex 正常完成（`finish=stop`）的請求常被記成 `client_closed`／`mid_stream`，main 上也一樣（4 個請求中 3 個）。
+2. SPEC-223 C-223-49「tool-shaped 結尾就跳過 input classifier」也只看 `messages[-1]`：Claude Code 的 system 提醒可能讓每個 tool 輪次多跑一次 judge（未驗證）。
+3. OpenAI 文件說 GPT-5.6 以上寫入收 1.25×，但 gpt-6-luna 的回應與稽核都沒有 cache write，可能少計。
+4. AWS 文件說 Bedrock 上的 Claude 有 implicit caching（best effort），與「沒標記就不快取」的假設衝突，待真 Bedrock 實測。
+5. `cache_control_missing` 只看 `/v1/messages`，聊天機器人的情況在 Console 永遠是 0。
+6. 程式註解把快取決策寫成 ADR-372（實為 ADR-382）；`production/prefix_affinity.py` 的最短快取長度表過時（改它會動 session affinity 的行為）。
+7. Xparse 工具迴圈的結束說明在串流裡沒有 `finish_reason`（SPEC-314 C-314-53／54）。
+8. 非串流 `X-BuStream-Debug: true` 回的 `metadata` 物件同樣會撞 `ChatCompletion.metadata`。
+9. `xparse_doctor.py:283` 的修復提示寫 `xparse restart ingress`，compose 服務名稱是 `xparse-ingress`。
+10. CLAUDE.md §17.2 #7 只叫人跑 `.github/scripts/*.sh`，但 `ci.yml` 還跑約 80 支 `.py` gate（surface-conformance-gate 就因此本地沒抓到）。
+11. `test_gateway_iam_http_cutover` 偶發 flake（IAM fixture 逾時或 500，rerun 即綠）。
+12. 只在本地失敗、不在 CI suite 的舊測試：`tests/test_spec171_served_name.py`、`tests/contract/test_spec196_governed_claude_code.py`、`test_issue711…::test_delete_route_is_registered_without_trailing_slash`。
+13. Console：稽核員頁面上「模型限制與路由」卡的其他開關仍可點（沒有儲存鈕）。
+14. IAM：LLM Proxy 列可以存 `auto_prompt_cache_enabled`，但不生效（只讀 consumer）；可比照 ADR-267 Amendment A 拒絕寫入。
+15. §5.2 原本已列的照舊：`/v1/messages` → DeepSeek 丟 `thinking` block；chat 串流每個 chunk 帶 `delta.role`；tool-call 回合 `xparse.empty_output=true`。
+
+**2026-10-18 處理結果**（編號同上面清單）
+
+| # | 結果 | 位置 |
+|---|---|---|
+| 1 | **已修並 merge**（`6c41836fb`）。<br>原因：Codex 讀到 `response.completed` 就關連線，gateway 還在等 provider 的串流結束而被取消。<br>後果不只是標籤錯：健康成功、routing actuals、Content Vault capture 都沒記；provider 的 `response.failed` 也記不成 FAILED。<br>修正：終端 frame 交給 transport 之後的取消記 `completed`，並照串流讀完的方式結算。<br>真 Codex × gpt-6-luna 直連 A/B：main 4 次中 3 次記錯，修正後 0 次 | [#6777](https://github.com/futurenestit/xparse/pull/6777)；SPEC-064 §6.4、SPEC-282 Rev.37；實測 `testing/responses-close-after-terminal-probe/` |
+| 2 | **已修並 merge**（`0b0d53702`）。<br>現行 Claude Code 2.1.302 的每個請求都以 `system` 訊息結尾，所以 C-223-49 的跳過從未對它生效。<br>修正：結尾改為最後一則不是 `system`／`developer` 的訊息。<br>真 `/v1/messages` 路由上，judge 次數 `[1,1,1]` → `[1,0,0]` | [#6776](https://github.com/futurenestit/xparse/pull/6776)；SPEC-223 C-223-49 Rev.、ADR-318 INV-318-12；實測 `testing/classifier-tool-tail-probe/` |
+| 3 | **已決定並 merge**（`d2199f252`）。<br>原因：OpenAI chat wire 有回報寫入數（`prompt_tokens_details.cache_write_tokens`），但 gateway 不讀，寫入以 input 價計。這是 SPEC-302 Rev.19 已記下、刻意延後的缺口。<br>Peter 選 B2：<br>・chat 也讀寫入數；<br>・價格段沒寫寫入價（留空，或勾「寫入不另收費」）時，照 input 價計；<br>・只有寫入價明確設成 0 才免費。<br>gateway、IAM、Audit 三個計價引擎一起改。<br>live 驗證：gpt-6-luna 的 chat 冷請求記到 12,539 個寫入 token，與 `/v1/responses` 的記法相同。<br>還沒驗證：GPT-5.6 以前的模型會不會回報寫入數 | [#6779](https://github.com/futurenestit/xparse/pull/6779)、[Xparse-Audit#206](https://github.com/futurenestit/Xparse-Audit/pull/206)；PRD-237 Addendum N、ADR-300 Amendment T、SPEC-302 Rev.21；live 證據在 [PR 留言](https://github.com/futurenestit/xparse/pull/6779#issuecomment-6245384537) 與 `testing/cache-write-metering-probe/` |
+| 4 | 已開 issue（Bedrock implicit caching 實測） | [#6774](https://github.com/futurenestit/xparse/issues/6774)，敏捷看板 #6、S10 |
+| 5 | 已開 issue（`cache_control_missing` 只看 `/v1/messages`） | [#6775](https://github.com/futurenestit/xparse/issues/6775)，敏捷看板 #6、S10 |
+| 9 | 已修並 merge：提示改為 `xparse restart xparse-ingress` | [#6773](https://github.com/futurenestit/xparse/pull/6773)（`93aa124fc`） |
+
+**手冊**（CLAUDE.md §18.6 的第二步還沒完成）
+
+- **誰能合併**：手冊 repo 自 10/16 起由 maintainer 把關，要 code owner（justinkclin、FN-Kenny）approve，而且只有 maintainer 能合併 main。Peter 的帳號沒有合併權限。#6778（`8fae3f63f`）已把這條規則寫進產品端的說明文件。
+- **[Xparse-Manual#45](https://github.com/futurenestit/Xparse-Manual/pull/45)**：一次落地五個更新頁 PR——#29、#33、#42（prefix cache 共用範圍）、#43（工具輪換鎖）、#44（W11 自動快取）。PR 裡請 maintainer 用 merge commit 合併，這樣五個 PR 會自動標成 merged。
+- **[Xparse-Manual#46](https://github.com/futurenestit/Xparse-Manual/pull/46)**：2026-10-18 的盤點。
+  - 撤下 stage=dev 的政策集效果標籤頁；
+  - 每一列的上線狀態與日期重新核對過（rel v1.77.1.5、prod v1.76.4）；
+  - 修正平台通知等三頁的收件人，以及內容金庫的選項文字；
+  - 拿掉一張含 dev-only 按鈕的截圖。
+- **#36、#40（Tool 規則）已關閉**：產品 main 在 10-17 把它們描述的行為改掉了，owner 決定延後這批手冊頁。
+- **gitlink**：產品 main 的 `3rd/Xparse-Manual` 還指向 `c3573dd`，它是 #36＋#40 的 merge commit，不在手冊 main 上。#45、#46 合併後，「手冊」session 會開產品 PR，把 gitlink 推進到手冊 main。
+- **留給 June 決定**：模型入境的兩頁（`model-ingest.md`、`promotion-approval.md`），以及註冊頁的「安全掃描模型庫」文字，寫的都是 stage=dev 的畫面。
+- **手冊 session 另外點出、還沒處理的產品問題**：
+  - 在被扣住的部署上，地端「來源」步驟的說明文字仍寫著「安全掃描模型庫」；
+  - 預算分頁用 `CONSOLE_ENVIRONMENT` 控制顯示，沒走 ADR-473 registry；
+  - CLAUDE.md 裡 forecast 那一行「尚未接 compose／deploy」已過期，rel 與 prod 的部署流程都有建置 forecast。
+
+**2026-10-18 第二輪 Agent CLI 實測**（從 #6779 的驗證 session 開出）
+
+- 報告：`/Users/peter/Desktop/testing/agent-ops-2026-10-18/REPORT.md`。
+- 規模：
+  - Claude Code 2.1.302、Codex 0.163.0、OpenCode 1.19.2，共 827 個 agent 請求；
+  - 另有直接打 API 的聊天與工具呼叫各 30 組。
+- 一般工作流在三個 client 上都穩定。client 收到的 usage 與稽核，645 筆中 638 筆一致，其餘 7 筆是既定設計。
+- 開出的 issue（除 #6789 外都還開著）：
+
+  | Issue | 問題 |
+  |---|---|
+  | #6785 | PII 或 word filter 開成 enforce 時，每個 agent session 過了 24 個偵測面條目就被拒（約 6–13 個請求） |
+  | #6786 | PII 的 person_name 會遮掉路徑與指令裡的使用者名稱 |
+  | #6787 | 單向假名經 coding agent 寫進檔案；agent 也會用 byte dump 繞過遮罩 |
+  | #6788 | gemma 的回答在 vLLM 0.24.0 的串流 reasoning parser 下被歸成 reasoning，工具輪次之後的回答消失。先前兩份報告把它歸為模型能力，是判斷錯了 |
+  | #6789 | 只有 reasoning 的回合，`empty_output` 記成 false。**已修**：#6797（`42ff86d92`） |
+  | #6790 | 503 `queue_overflow` 沒有 `Retry-After`；預設 rate limit 下，約 20 個並行請求就開始被拒 |
+  | #6791 | chat 與 Responses 把 provider 的 context overflow 以 vLLM 原文加 `provider_error` 回報，client 認不出來 |
+  | #6792 | 驗證失敗的 400 沒有 `X-Request-Id`，也沒有稽核紀錄 |
+  | #6793 | 讀過一次 PDF，`/v1/messages` session 在不收檔案的模型上就永久 400 |
+  | #6794 | IAM `PUT /applications/{uuid}` 回 200，但會靜默忽略打錯的欄位 |
+
+- 同一輪 merge 的 PR：
+  - #6795（`37566f64d`）：`agent-cli-setup` runbook 補上實測驗證過的 client 設定；
+  - #6797（`42ff86d92`）：`/v1/responses` 與 agent mode 的 `empty_output` 改成與 chat 一致。
+- **key 的注意事項**：那個 session 一開始把 app key 與 tenant admin key 寫進了 `env.local`（權限 600），違反規定。它收到限制後已刪除，並確認 `testing/` 裡沒有留下任何 key 的片段。保險起見，可以考慮換掉這兩把 key。
+
+另：#6776 第一次 CI 因新測試檔沒登記進 `gateway-ci-suite.txt` 被 CI-Suite Orphan Gate 擋下（就是第 10 項：本地只照 §17.2 #7 跑 `.sh` 會漏）。已補登記。之後在本地把 `ci.yml` Static Gates 的 124 支 script 全跑一次，並與 origin/main 對照：只多出 `cython-pydantic-method-gate.sh`，它掃到 worktree 裡的 `.venv`，CI 沒有這個資料夾。
 
 ---
 
@@ -24,6 +195,7 @@
    - **Console／IAM 的 tenant_admin 登入**：只有要改 Model 的 `rotate_cache_salt_on_tool_calls` 或 application 的 `prefix_cache_sharing_scope` 時才需要。gemma Model 是共用的，翻開關會影響別人，翻之前先問，測完改回原值。
    - **Claude Code 一定要明確設 `ANTHROPIC_BASE_URL` 指向 gateway**（或用 `env -i` 起乾淨環境），不要繼承 shell 的設定。E2E 時曾有一次繼承到 `https://api.anthropic.com`，把 key 送了出去。
    - **Codex 的 `shell_snapshot` 會存下整個 env（含 key）**，跑完就刪。
+   - **本機 E2E 的 app key 已有檔案**：`/Users/peter/Desktop/testing/agent-e2e/opencode-cloud/home/.appkey`（`peter` 應用）。2026-10-18 Peter 同意的用法：只在用它的那個指令裡讀進 shell 變數，例如 `K="$(tr -d '\n' < …/.appkey)"`，用完 `unset`；不印出、不複製到新檔案，也不放進 argv 或 log。
    - **E2E 用的 application（`55c3e729-78f1-4f61-9a06-85fd6e3c3519`）也有其他測試者在用**，他們的 Tool 規則曾經靜默拿掉 OpenCode 的 `bash`（E2E F22）。需要乾淨的環境，就請 Peter 開一個專用的 application。
 7. **PR、merge 與看板**：
    - 原則上一張 issue 一個 PR；同組要合在一起做時，在 PR 裡寫明。PR 描述寫 `Closes #NNNN`。
@@ -204,23 +376,24 @@ salt 一旦穩定，同樣的對話重用率約 99%。
 
 | # | 工作 | 狀態／下一步 | 接手 agent 可以做嗎 |
 |---|---|---|---|
-| W1 | 部署到 rel，再到 prod | 未部署。順序依 ADR-055 §R3.7：IAM 先上（migration 0392、0393 只新增欄位）→ **跑 W6 盤點，把有風險的 vLLM Model 設成 true**（W6 還沒實作，在那之前至少要人工對照 Fleet `extra_args` 做一次，並留紀錄）→ 再上 gateway 和 Console | 不行，要 Peter 授權 |
+| W1 | 部署到 rel，再到 prod | 未部署。順序依 ADR-055 §R3.7：IAM 先上（migration 0392、0393 只新增欄位）→ **跑 W6 盤點，把有風險的 vLLM Model 設成 true**（W6 還沒實作，在那之前至少要人工對照 Fleet `extra_args` 做一次，並留紀錄）→ 再上 gateway 和 Console。2026-10-18 起這批還要一起帶上 W11（migration 0395）、#6776、#6777、#6779（IAM 先上）與 #6797，見 §0a「部署要多注意的」 | 不行，要 Peter 授權 |
 | W2 | rel E2E 驗收 | 等 W1。有一個 session（「rel E2E evidence」）在等 rel 部署 | 不行 |
 | W3 | 發佈（S4）：刪掉 ADR-473 entry `prefix_cache_sharing_scope` 與兩端 call site | 等 W2 通過 | 不行，W2 通過前不得刪 |
-| W4 | 使用者手冊：Xparse-Manual #42（前情共用範圍）、#43（工具輪換鎖） | 等 code owner @justinkclin 或 @FN-Kenny review | 不行 |
-| W5 | 手冊 gitlink | 見下方說明 | 可以，但要等 #36、#40、#42、#43 都 merge |
+| W4 | 使用者手冊：Xparse-Manual #42（前情共用範圍）、#43（工具輪換鎖）、#44（W11） | 2026-10-18 改由 #45 一次落地（含 #29、#33），另有盤點 #46；都等 code owner @justinkclin 或 @FN-Kenny review | 不行 |
+| W5 | 手冊 gitlink | 「手冊」session 在監看 #45、#46，合併後開產品 PR 推進 gitlink；見下方說明 | 由那個 session 做 |
 | W6 | 部署前盤點指令（ADR-055 §R3.7 第 2 步）：列出所有 vLLM Model，標出 Fleet `extra_args` 含 `--speculative-config`、`--kv-cache-dtype fp8*`，或 hybrid／GDN 架構的模型 | **沒有實作**（`apps/iam/.../management/` 找不到）。這是 W1 的前置條件 | 先用 `/doc-issue` 開 issue，Peter 同意後才實作 |
 | W7 | 風險組合警告（#6598 Desired 5）：endpoint 用了上述參數、開關卻關著時要顯示警告；外部 vLLM 顯示「engine args unknown」 | **沒有實作，也沒開獨立 issue**，目前只掛在 #6598 底下 | 從 #6598 拆出來，用 `/doc-issue` 開 |
 | W8 | 收尾 #6598 | 見下方說明 | 不要自己關 #6598，等 W7 開好後問 Peter |
 | W9 | IAM `PATCH /iam/models/{uuid}` 沒有欄位層級的角色規則 | 見下方說明 | 先用 `/doc-issue` 開 issue。這是行為改動，要先補設計閉環 |
 | W10 | node-agent 的 vLLM 沒有明確帶 `--enable-prefix-caching`／`--enable-prompt-tokens-details` | 已有 issue #6647 | 不在這批 |
-| W11 | Claude 自動快取：聊天機器人沒標 `cache_control` 就沒有快取 | **這是產品決定，不是 bug**。建議做成應用自選、預設關，要修訂 ADR-382 並寫 PRD。尚未開始 | 不行，等 Peter 決定 |
+| W11 | Claude 自動快取：聊天機器人沒標 `cache_control` 就沒有快取 | ~~這是產品決定，不是 bug~~ **2026-10-17 Peter 決定：預設自動快取、虧了會停、既有應用一併適用**（ADR-382 Amendment D／PRD-362／SPEC-331）。文件 #6744、IAM #6748、gateway #6750、Console #6751 都已 merge，2026-10-18 本機端到端通過，見 §0a | rel 驗收（CT-331-19）後發佈 |
 
 **W5 手冊 gitlink 的細節**
 
 - 主 repo `origin/main` 上的 `3rd/Xparse-Manual` 指向 `c3573ddbc`。它是手冊 PR #40 的 head（由 #6671 帶進來），它的歷史裡也包含 #36 的 head `1551a5a74`（由 #6666 帶進來）。兩張都還沒 merge。
 - #6689、#6722 這兩個 Console PR merge 時，都沒有推進 gitlink。
-- 要等手冊 #36、#40、#42、#43 **四張都** merge 進手冊 main，再開一個小 PR，把 gitlink 推到包含這四張的手冊 main commit。先推的話，會丟掉 #6666、#6671 的手冊頁。
+- ~~要等手冊 #36、#40、#42、#43 **四張都** merge 進手冊 main，再開一個小 PR，把 gitlink 推到包含這四張的手冊 main commit。先推的話，會丟掉 #6666、#6671 的手冊頁。~~
+- **2026-10-18 更新**：#36、#40 已關閉（產品行為在 10-17 改了，owner 延後那批手冊頁），所以推進 gitlink 時，不再需要保留 #6666、#6671 的手冊頁。#42、#43、#44 改由 #45 一次落地。等 #45、#46 合併後，把 gitlink 推進到手冊 main 即可。
 - 手冊 repo 的 merge commit 和 squash 兩種方式都用過，所以不要假設 `c3573ddbc` 會自己變成 main 的祖先。推之前，在 `3rd/Xparse-Manual` 裡跑 `git merge-base --is-ancestor <新 gitlink> origin/main` 確認。
 
 **W8 收尾 #6598 的細節**
@@ -246,6 +419,8 @@ salt 一旦穩定，同樣的對話重用率約 99%。
 ---
 
 ## 5. 待修 issues
+
+> **2026-10-18**：除了 #6725，這 13 張都已修好並關閉，看板上的卡已移到 Done。現況與對應的 PR 見 §0a；本節保留 10-17 的原始索引，供查設計文件與禁止事項。
 
 13 張都在敏捷看板 #6，欄位都是：Status Triaged、Sprint S10 10/20-11/02、assignee LeiIeongTam-Peter。
 
