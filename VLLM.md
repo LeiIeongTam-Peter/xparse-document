@@ -7,7 +7,62 @@
   - 快取在 main 上已經修好，本機實測重用率約 99%。
   - 13 張 issue 修好 12 張；W11（聊天機器人打 Claude 自動快取）已 merge，並在本機驗過。
   - 2026-10-19：#6775（聊天機器人的「跳過快取」永遠是 0）照 owner 決定全做，7 個 PR 都已 merge；本文件勾選的 #6790、#6791、#6792、#6794、第 13、14 項也都已 merge。見 §0b。
+  - 2026-10-19 晚：**Bedrock 上的 Claude 也有自動快取**（owner 決定），連同三個實測發現一起修完並 merge：#6874（設計）、#6879（gateway＋Console）、#6878（IAM 探測）；#6199、#6774、#6849 已關閉。見 §0c。
   - **部署狀態**：rel 是 v1.77.1.6（`origin/rel` `61189cdb8`，2026-10-18），這批只有 #6729、#6733 的修正被 cherry-pick 進去；快取、W11、#6775 與 2026-10-19 的六項都還沒進 rel。prod 仍是 v1.76.4（`ed62d8223`）。本機 stack 跑在 `bc01d0a4f`，看不到 2026-10-19 merge 的修正。
+
+---
+
+## 0c. 2026-10-19 晚：Amazon Bedrock（最新，先讀）
+
+還沒做完的事仍以 §0b 的清單為準（已同步更新）。本節記錄 Bedrock 這一批。
+
+**起因**：第一次有 Bedrock 可測（Peter 的 key，`ap-northeast-3`）。原本 pool 裡的 `openai.gpt-6-luna` 打不通（400：要用 inference profile），卻顯示 healthy。實測（證據包 `docs/research/poc/bedrock-prompt-cache-2026-10-19/`）：
+
+- Bedrock 上的 Claude 沒有 implicit caching，不帶標記每輪全價；
+- system 之後與最後一則訊息之後的 `cachePoint` 都有效；
+- 非 Claude 模型帶 `cachePoint` 回 403；
+- Claude Code 的對話中段 system 被提到 top-level `system`，對話歷史每個 call 重寫、讀不到；
+- 只帶 top-level `cache_control` 的 `/v1/messages`（#6849）沒有快取。
+
+**Peter 的決定（2026-10-19）**：
+
+- 刪掉打不通的 `openai.gpt-6-luna` 與太貴的 `global.anthropic.claude-sonnet-5-5`（已刪）；
+- Bedrock 也要做自動快取；
+- #6199 關閉（真 Bedrock 驗證過，已留言附證據）；
+- 其他發現一併修，可參考其他平台。
+
+| PR | merge commit | 內容 |
+|---|---|---|
+| #6874 | `af4947c9a` | ADR-382 Amendment F、SPEC-331 Rev.4（CT-331-22..28）、PRD-362 Amendment A、PRD-299／SPEC-312／ADR-261 註記、證據包（含 LiteLLM／Bifrost／Portkey 的做法比較） |
+| #6879 | `99a802e1a` | gateway：只有 Claude 收 `cachePoint`；Converse 兩個位置（system、結尾）；client 意圖與 Amendment D 自動快取都適用 Bedrock 上的 Claude；Converse 上中段 system 留在原位（user 文字、`toolResult` 在前）；`/v1/messages` 的 top-level `cache_control` 是意圖，passthrough／advisory／usage 鍵共用 `client_cache_intent`。Console 開關說明改含 Amazon Bedrock（glossary 先改） |
+| #6878 | `2ec663688` | IAM：Bedrock 連線探測多查一次 model id（GetFoundationModel／GetInferenceProfile，不做推論）：不能 on-demand 的 id 判 unhealthy、訊息指名該用的 profile；不在 region 的 id（400／404）判 unhealthy；查不到時保留 key 的判斷 |
+
+**驗證**（live 用分支 gateway＋真 IAM＋真 Bedrock，`jp.anthropic.claude-haiku-5-5`、臨時註冊的 `jp.anthropic.claude-haiku-4-5-20251001-v1:0`，驗完已刪）：
+
+- chat 不帶標記、Responses 不帶 key、`/v1/messages` 只帶 top-level，各 5 輪：第 2–5 輪讀 99.6–99.8%。
+- 真 Claude Code 2.1.303：逐 call 讀取 23,913 → 24,074 → 24,491（含整段歷史）。整個 session 未快取的 input：分支 16 token，main 16,056。
+- 非 Claude 模型帶 `cache_control`：分支 200，main 403。
+- IAM 探測對真 Bedrock 7 個 id 判斷全對。
+- 測試：
+  - gateway 全套 20234 passed，新測試 24 個在 origin/main 上紅；
+  - IAM 全套 12473 passed，新測試 9 個在舊探測上紅；
+  - Console vitest／tsc／glossary 通過；
+  - static gates 與 base 一致。
+
+**要知道的**：
+
+- **部署**：沒有 migration。自動快取仍由 ADR-473 `auto_prompt_cache`（`stage=rel`）扣住，prod 與客戶安裝在發佈前不會自動加。下面兩項則部署即生效：
+  - client 自己的意圖（`prompt_cache_key`、chat 標記、`/v1/messages` 的 `cache_control`）在 Bedrock 上的 Claude 也會送 `cachePoint`；
+  - 中段 system 留在原位（Claude Code 走 Bedrock 的 body 會變）。
+- **IAM 探測上線後**：已用裸 id 註冊、其實要 inference profile 的 Bedrock 模型，下次每小時掃描會變 unhealthy（訊息會指名該用的 id）。它們本來就打不通，只是以前看起來 healthy。
+- **本機**：live stack 跑主 checkout（仍是舊程式），要看到這批要更新主 checkout 並重啟 gateway／IAM。Console dev server（:4001）今天會卡住，IAM API 改走 `https://localhost:3000/apis`。
+- **main 上與此無關的紅燈**：#6875 把 `CLAUDE.md` 改成指向 `AGENTS.md` 的 symlink 後，`tools.monorepo_guard guidance-check`（M3 Envelope Foundation Contracts、main 的 Monorepo Inventory）讀不到 PRD-302 phase marker，所有 PR 都會紅（`MONO-GUIDANCE-001`）。不是 required check，這批 PR 照常 merge；要 #6875 的作者修。
+
+**還沒做的（範圍外，未開 issue）**：
+
+- ADR-382 F-8：Anthropic 直連翻譯路徑上的中段 system 仍提到頂層；Vertex 上的 Claude；Bedrock 上的 Nova（AWS 說支援 `cachePoint`，沒實測）；`/v1/messages` 對非 Claude 後端的 advisory 仍只看 provider。
+- Console 批次註冊預設選裸 id。現在 create-time 探測會擋下並指名 profile，但預設值本身還沒改。要改得先讓 upstream listing 帶 `inferenceTypesSupported`，會動 OpenAPI 與七處 pin。
+- rel 驗收：SPEC-331 CT-331-28 要在 rel 上對真 Bedrock 再跑一次。
 
 ---
 
@@ -26,12 +81,12 @@
 3. **#6725**：下一次全新預設安裝時，照 runbook 跑三個 CLI。
 4. **手冊**：2026-10-19 流程已改，見下方「手冊（2026-10-19 起）」。
 5. **開著的 issue**：
-   - 快取這一路：#6774（Bedrock implicit caching 實測）、#6598（W8）、#6647（W10）、#6649；
+   - 快取這一路：#6598（W8）、#6647（W10）、#6649（#6774 已於 2026-10-19 由 #6879 關閉，見 §0c）；
    - 第二輪 agent 實測：#6785（P1）、#6786、#6787、#6788、#6793；
    - 2026-10-19 新開（敏捷看板 #6、S10、Triaged）：
      - #6847：驗證失敗的 400 要不要寫一筆稽核紀錄（#6792 Desired 2，決策）；
      - #6848：chat 串流在第一個 token 前收到 provider 4xx 時已回 HTTP 200，OpenCode 救不回 context overflow（決策）；
-     - #6849：`/v1/messages` 只帶 top-level `cache_control` 的請求在翻譯路徑拿不到快取；
+     - ~~#6849：`/v1/messages` 只帶 top-level `cache_control` 的請求在翻譯路徑拿不到快取~~（2026-10-19 由 #6879 修好並關閉，§0c）；
      - #6850：`PUT /iam/applications/{uuid}` 收下 `app_type` 卻從不儲存；
      - #6851：兩個建立 application 的端點默默丟掉未宣告欄位；
      - #6852：Audit usage-cost 的 raw-bridge debug 路徑回 500。
@@ -39,6 +94,10 @@
 7. **GPT-5.6 以前的 OpenAI 模型**，冷請求會不會回報寫入數，仍待一把能打這些模型的 key 驗證（§0a 第 3 項）。
 8. **已部署環境的自簽憑證要重簽**（#6724，`agent-cli-setup.md` §0）。
 9. **#6695／#6699 的 migration 編號**：Peter 自己通知作者（見「部署要注意的」）。
+10. **Bedrock 這一批**（§0c）：
+    - 隨部署上 rel 後，在 rel 跑 SPEC-331 CT-331-28；
+    - 範圍外的 F-8 各項與 Console 批次註冊的預設值，要不要開 issue 由 Peter 決定；
+    - main 的 `MONO-GUIDANCE-001`（#6875）要作者修。
 
 **#6775（owner 決定，2026-10-19）**
 
