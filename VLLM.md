@@ -15,10 +15,16 @@
 
 **還沒做完的事**
 
-1. **#6775 的 live 驗收**：要一個關掉「自動 Prompt Caching（Claude）」的專用測試應用（Peter 開），以及本機 stack 更新到 `127db0857` 之後在 Console 看「跳過快取」計數、「其中 Xparse 自動 Prompt Caching」與暫停清單。#6775 因此還開著。
+1. **#6775 已關閉**（Peter 2026-10-19 決定）：驗收以真 route 整合測試與 live 的 force_off／應用開著兩種情境為據。app_off 的 live 情境與部署後的 Console 畫面沒有做，併入這批的 rel 驗收。
 2. **部署**（要 Peter 授權）：見下方「部署要注意的」。
-3. **後續 issue**（草稿已備，待 Peter 核准）：#6792 Desired 2（驗證失敗 400 的稽核紀錄）、#6791 的 OpenCode chat 串流、`/v1/messages` 翻譯路徑遺失 top-level `cache_control` 意圖、`PUT /applications` 宣告了 `app_type` 卻不存、兩個建立 application 的端點默默丟掉未宣告欄位、Audit raw-bridge debug 路徑 500。
-4. **#6695／#6699 的 migration 編號**：見「部署要注意的」。
+3. **後續 issue（2026-10-19 已開，敏捷看板 #6、S10、Triaged）**：
+   - #6847：驗證失敗的 400 要不要寫一筆稽核紀錄（#6792 Desired 2，決策）。
+   - #6848：chat 串流在第一個 token 前收到 provider 4xx 時已回 HTTP 200，OpenCode 救不回 context overflow（決策）。
+   - #6849：`/v1/messages` 只帶 top-level `cache_control` 的請求在翻譯路徑拿不到快取。
+   - #6850：`PUT /iam/applications/{uuid}` 收下 `app_type` 卻從不儲存。
+   - #6851：兩個建立 application 的端點默默丟掉未宣告欄位。
+   - #6852：Audit usage-cost 的 raw-bridge debug 路徑回 500。
+4. **#6695／#6699 的 migration 編號**：Peter 自己通知作者（見「部署要注意的」）。
 
 **#6775（owner 決定，2026-10-19）**
 
@@ -43,15 +49,16 @@
   - S2b：擷取 gateway 真實送出的 append bytes，重送進 S1 的真 append 端點（32 筆）；gateway 組的 `cost_saved_usd` 與手算一致。
   - S3a：用本機 Audit 的 2000 筆真事件比對投影（gateway 39、client 137、app_off 2）。
   - S4b：stub 資料的本機預覽截圖（五種寬度 × 中英文 × 六種狀態）。
-- **還沒驗證**：app_off 的 live 情境；部署後的 Console 畫面；Audit 路徑的子集只有測試涵蓋（只在 `auto_prompt_cache` 比 `cost_surfaces_from_iam` 先發佈時出現）。
+- **還沒驗證**（併入 rel 驗收）：app_off 的 live 情境；部署後的 Console 畫面；Audit 路徑的子集只有測試涵蓋（只在 `auto_prompt_cache` 比 `cost_surfaces_from_iam` 先發佈時出現）。
+- #6775 已於 2026-10-19 關閉（Peter 決定）。
 
 **本文件勾選的順手修（都已 merge）**
 
 | Issue | PR | merge commit | 要知道的 |
 |---|---|---|---|
 | #6790 503 `queue_overflow` 補 `Retry-After` | #6816 | `8445d38ba` | 值＝`clamp(ceil(估計等待秒數), 1, queue_timeout_sec)`，tenant 預設是 2 秒。實測 Codex 0.163、OpenCode 1.19.2、Claude Code 2.1.303 都照它等，但都不會因此少打請求；OpenCode 自己的退避比 header 長，帶 header 反而較早放棄。SPEC-026 表裡 `queue_timeout` 原寫 408，順手更正為 504 |
-| #6792 驗證失敗的 400 補 `X-Request-Id` | #6814 | `f9b43c184` | body 不變，加一行 WARNING；Desired 2（稽核紀錄）拆出，待開 issue |
-| #6791 context overflow 回 `context_length_exceeded` | #6820 | `045ad38d2` | Codex 與 OpenCode（Responses）改善；**OpenCode 走 chat 串流沒有改善**：錯誤在 HTTP 200 之後以串流 chunk 送達，OpenCode 不分類，runbook 的 `limit` 設定仍然需要（待開 issue） |
+| #6792 驗證失敗的 400 補 `X-Request-Id` | #6814 | `f9b43c184` | body 不變，加一行 WARNING；Desired 2（稽核紀錄）拆成 #6847 |
+| #6791 context overflow 回 `context_length_exceeded` | #6820 | `045ad38d2` | Codex 與 OpenCode（Responses）改善；**OpenCode 走 chat 串流沒有改善**：錯誤在 HTTP 200 之後以串流 chunk 送達，OpenCode 不分類，runbook 的 `limit` 設定仍然需要（後續 #6848） |
 | #6794 `PUT /applications` 打錯欄位回 422 | #6815 | `735a77042` | `skill_selections` 保留專屬 400；OpenAPI 重產、七處 digest 重釘 |
 | #6817（範圍外第 14 項）LLM Proxy 拒寫 `auto_prompt_cache_enabled` | #6830 | `7f00eda72` | 只擋 `app_type == "llm_proxy"`：legacy `api` 列仍持有 client key、開關有效，所以不擋（與 issue Desired #1 的差異已在 issue 與 PR 說明）；INV-382-18、SPEC-331 Rev.3 |
 | #6818（範圍外第 13 項）稽核員的設定頁唯讀 | #6822 | `56a45fbe9` | Model Constraints & Routing、Execution Settings 與 LLM Proxy 頁的 Operation Mode 都改唯讀 |
@@ -67,7 +74,7 @@
 
 **§0a 範圍外發現的新狀態**
 
-- 第 5 項：#6775，程式都已 merge，等 live 驗收。
+- 第 5 項：#6775，已完成並關閉（app_off 的 live 驗收併入 rel 驗收）。
 - 第 6 項：ADR-372 註解已在 #6829 與 Xparse-Audit#207 改正；`production/prefix_affinity.py` 的最短長度表仍另案。
 - 第 13 項：#6818 已修。第 14 項：#6817 已修。
 - 其餘（7、8、10、11、12、15）不變。
