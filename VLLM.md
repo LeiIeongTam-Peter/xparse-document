@@ -1,18 +1,70 @@
 # vLLM prefix cache（前情共用）：已完成的工作與待修清單
 
 - **狀態日期**：2026-10-19
-- **基準**：`futurenestit/xparse` origin/main `d2d87f57b`（§0a 以 2026-10-18 的 `cd1b1e84b` 為準；§1–§8 原文以 2026-10-17 的 `e329c51c2` 為準）
+- **基準**：`futurenestit/xparse` origin/main `d484d036c`（§0c、§0d；§0b 以 `d2d87f57b` 為準；§0a 以 2026-10-18 的 `cd1b1e84b` 為準；§1–§8 原文以 2026-10-17 的 `e329c51c2` 為準）
 - **讀者**：接手修理剩餘問題的 agent／工程師
 - **一句話**：
   - 快取在 main 上已經修好，本機實測重用率約 99%。
   - 13 張 issue 修好 12 張；W11（聊天機器人打 Claude 自動快取）已 merge，並在本機驗過。
   - 2026-10-19：#6775（聊天機器人的「跳過快取」永遠是 0）照 owner 決定全做，7 個 PR 都已 merge；本文件勾選的 #6790、#6791、#6792、#6794、第 13、14 項也都已 merge。見 §0b。
   - 2026-10-19 晚：**Bedrock 上的 Claude 也有自動快取**（owner 決定），連同三個實測發現一起修完並 merge：#6874（設計）、#6879（gateway＋Console）、#6878（IAM 探測）；#6199、#6774、#6849 已關閉。見 §0c。
+  - 2026-10-19 夜：§0c 列的後續三項都做完並 merge：Anthropic 翻譯路徑的中段 system 留在原位、Amazon Nova 的自動快取（含 IAM 預設價格）、Console 批次註冊預設選可呼叫的 inference profile。#6882（設計）、#6883、#6884。rel 驗收由 Peter 自己測。見 §0d。
   - **部署狀態**：rel 是 v1.77.1.6（`origin/rel` `61189cdb8`，2026-10-18），這批只有 #6729、#6733 的修正被 cherry-pick 進去；快取、W11、#6775 與 2026-10-19 的六項都還沒進 rel。prod 仍是 v1.76.4（`ed62d8223`）。本機 stack 跑在 `bc01d0a4f`，看不到 2026-10-19 merge 的修正。
 
 ---
 
-## 0c. 2026-10-19 晚：Amazon Bedrock（最新，先讀）
+## 0d. 2026-10-19 夜：Anthropic 翻譯路徑、Nova、Bedrock 批次註冊（最新，先讀）
+
+**起因**：§0c 最後列了四件「還沒做的」。Peter 決定前三件都做，第 4 件（rel 驗收）由他之後自己測。
+
+| PR | merge commit | 內容 |
+|---|---|---|
+| #6882 | `aa71704e7` | 設計：ADR-382 Amendment G（§17）、SPEC-331 Rev.5（CT-331-29..32）、PRD-362 Amendment B、SPEC-324 Rev.3（C-324-22、C-324-68，C-324-12 修訂）；證據包 §7–§10；ADR-300 Amendment T、PRD-237 Addendum N 對 Nova 寫入價的更正；Core 列 |
+| #6883 | `2c722fb96` | gateway：G-1 Anthropic 翻譯路徑的中段 system 留在原位（user 文字、`tool_result` 在前、空白不送）；G-2 `/v1/messages` 任何快取意圖在翻譯路徑放 system＋結尾；G-3 Nova（2 Lite／Pro／Lite／Micro）收 `cachePoint`，多放上一個請求的結尾，不計入 breaker。IAM：G-4 Nova 預設快取價格（讀 0.25×、寫 `flat: 0`）。Console：開關改名「自動 Prompt Caching（Claude、Nova）」 |
+| #6884 | `d484d036c` | IAM：Bedrock 上游清單每列帶 `on_demand`（`inferenceTypesSupported`），`registered` 也比對 profile；OpenAPI 重產（Python 3.11）＋七處 pin。Console：只能經 profile 呼叫的模型預設選同地理區的 profile，裸 id 不再出現在選單 |
+
+**實測**（證據包 `docs/research/poc/bedrock-prompt-cache-2026-10-19/` §7–§10）：
+
+- **Nova 不會往回找**：只放結尾時每輪只讀到 system，歷史每輪重寫。多放上一個請求的結尾之後，Nova 2 Lite 第 2–5 輪讀 99.2–99.3%（7821 → 7980），`/v1/messages` 也隨歷史成長。
+  - 約 30.9k token 的前綴照樣快取，AWS 文件寫的 20K 上限沒有出現。
+  - `apac.` profile 偶爾整輪重寫，AWS 文件記載跨區推論會這樣。
+- **Anthropic 翻譯路徑上的真 Claude Code**（兩個 gateway 都加 `XPARSE_TRANSLATION_FORCE_OFF=1`）：整個 session 未快取的 input，main 26,004、分支 20。main 每個 call 只讀到 system 的 20,343。
+- **Nova 價格**（AWS 價目表，東京與 us-east-1）：四個家族的寫入都是 $0.00，讀取是 input 的 0.25 倍。
+  - 寫入列是取代 input 價，不是加收：對照組 Kimi K3 的寫入列是它 input 的 1.25 倍。
+  - ADR-300 Amendment T 說「Nova 寫入免費是誤讀」，這句不成立，已在設計 PR 更正。
+- **`inferenceTypesSupported`**：`ap-northeast-3` 32 個模型有 30 個只能經 profile 呼叫（另兩列：1 個 `ON_DEMAND`、1 個空陣列）。分支的清單在三個 region 判斷全對。
+- **測試**：
+  - gateway 全套綠；
+  - IAM 全套 12,483 passed（唯一失敗是本機 Python 3.14 的 OpenAPI 測試，CI 用 3.11）；
+  - Console vitest 全套綠；
+  - 新測試在 main 上都是紅的；
+  - static gates 只有本機環境類的失敗（submodule、PyYAML、in-tree `.venv`）。
+
+**要知道的**：
+
+- **部署**：沒有 migration。以下部署即生效：
+  - G-1：只影響翻譯路徑，Claude Code 平常走原生直送不變；
+  - Nova 上 client 自己的快取意圖；
+  - IAM 的 Nova 預設價格（只用在之後寫的價格段）。
+  Nova 的自動快取仍由 ADR-473 `auto_prompt_cache`（`stage=rel`）扣住。
+- **已存了 1.25 倍寫入價的 Nova 價格段**不會被 backfill 改（不是「缺」），要在 Console 重新套用定價。過去 gateway 幾乎沒對 Nova 放標記，舊報表幾乎不受影響。
+- **批次註冊**仍由 `model_batch_registration`（`stage=dev`）扣住，只在 dev 看得到新預設。
+- **預設選地理區 profile、不選 `global.`**：資料不出地理區，AWS 對有合規要求的建議。`global.` 約省 10%，客戶可在選單改。這是設計決定，Peter 可以推翻。
+- **另案（未開 issue）**：
+  - Anthropic 原生的對話中段 `role: "system"`（ADR-382 §17.3 Deferred：要依模型的支援表與位置驗證，錯就 400；Haiku／Sonnet 5.5 可能忽略緊接在 tool result 之後的 system 訊息）；
+  - Vertex 上的 Claude；
+  - 1 小時 TTL。
+
+**rel 驗收（Peter）**：
+
+- SPEC-331 CT-331-28（Bedrock 上的 Claude）。
+- CT-331-32 還沒量的一項：`/v1/responses` 打 Nova、不帶 `prompt_cache_key`，5 輪。
+- Console 開關名稱與說明。
+- Nova 成本列的寫入是 $0。
+
+---
+
+## 0c. 2026-10-19 晚：Amazon Bedrock（先讀）
 
 還沒做完的事仍以 §0b 的清單為準（已同步更新）。本節記錄 Bedrock 這一批。
 
@@ -60,9 +112,9 @@
 
 **還沒做的（範圍外，未開 issue）**：
 
-- ADR-382 F-8：Anthropic 直連翻譯路徑上的中段 system 仍提到頂層；Vertex 上的 Claude；Bedrock 上的 Nova（AWS 說支援 `cachePoint`，沒實測）；`/v1/messages` 對非 Claude 後端的 advisory 仍只看 provider。
-- Console 批次註冊預設選裸 id。現在 create-time 探測會擋下並指名 profile，但預設值本身還沒改。要改得先讓 upstream listing 帶 `inferenceTypesSupported`，會動 OpenAPI 與七處 pin。
-- rel 驗收：SPEC-331 CT-331-28 要在 rel 上對真 Bedrock 再跑一次。
+- ADR-382 F-8：~~Anthropic 直連翻譯路徑上的中段 system 仍提到頂層~~（§0d 已修）；Vertex 上的 Claude；~~Bedrock 上的 Nova~~（§0d 已做）；`/v1/messages` 對非 Claude 後端的 advisory 仍只看 provider。
+- ~~Console 批次註冊預設選裸 id~~（§0d：#6884 已改）。
+- rel 驗收：SPEC-331 CT-331-28 要在 rel 上對真 Bedrock 再跑一次（Peter 自己測）。
 
 ---
 
@@ -94,9 +146,9 @@
 7. **GPT-5.6 以前的 OpenAI 模型**，冷請求會不會回報寫入數，仍待一把能打這些模型的 key 驗證（§0a 第 3 項）。
 8. **已部署環境的自簽憑證要重簽**（#6724，`agent-cli-setup.md` §0）。
 9. **#6695／#6699 的 migration 編號**：Peter 自己通知作者（見「部署要注意的」）。
-10. **Bedrock 這一批**（§0c）：
-    - 隨部署上 rel 後，在 rel 跑 SPEC-331 CT-331-28；
-    - 範圍外的 F-8 各項與 Console 批次註冊的預設值，要不要開 issue 由 Peter 決定；
+10. **Bedrock 這一批**（§0c、§0d）：
+    - 隨部署上 rel 後，Peter 在 rel 跑 SPEC-331 CT-331-28 與 CT-331-32 還沒量的一項（§0d 末）；
+    - F-8 的 Anthropic 翻譯路徑中段 system、Nova、Console 批次註冊的預設值已由 §0d 做完；剩 Vertex 上的 Claude、1 小時 TTL、Anthropic 原生的對話中段 `role: "system"`（ADR-382 §17.3 Deferred），要不要開 issue 由 Peter 決定；
     - main 的 `MONO-GUIDANCE-001`（#6875）要作者修。
 
 **#6775（owner 決定，2026-10-19）**
