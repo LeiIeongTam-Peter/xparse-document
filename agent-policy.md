@@ -140,7 +140,7 @@
 - **工具呼叫審視（SPEC-304 Rev.25，#6363）**：缺 `required` 參數、或 arguments 不是 JSON 物件的呼叫**照交付**（只在終端記錄），不再是 503。被輸出上限截斷的呼叫不交付，回合以 `length`／`max_tokens` 結束。503 只在 `XPARSE_TOOL_CALL_ARGUMENTS_ENFORCE=1` 時出現。入口是 `tool_call_validation.review_tool_calls`。`/v1/responses` 只記錄（C-304-408，#6465）；provider 自己說沒收完的呼叫由 worker 標出（Rev.28，#6526）。被拒呼叫自己的參數問題不算審視的 finding。
 
 **對外說法**：
-- Codex 的說法以 Console `scopeNoticeCodex` 為準：「被禁工具的定義不會送給模型；client 的指示或先前的對話提到它時，模型仍可能嘗試呼叫，強制模式下那個呼叫不會被執行。exec 執行的腳本裡呼叫的工具看不到；在 client 上把 MCP server 改名，規則就對不上。」舊的 Q5 原句已由 Q15／Q14 定案取代，但 ADR-490 §10 的 Q5 列本身沒跟著改（文件漂移，§6.5）。
+- Codex 的說法以本段為準（Console 的「Tool 規則的限制」說明框，含 `scopeNoticeCodex`，2026-10-19 起不在表單上顯示，SPEC-304 Rev.41；Console 上帶 namespace 說法的只剩範本的 `codexNotes`）：「被禁工具的定義不會送給模型；client 的指示或先前的對話提到它時，模型仍可能嘗試呼叫，強制模式下那個呼叫不會被執行。exec 執行的腳本裡呼叫的工具看不到；在 client 上把 MCP server 改名，規則就對不上。」舊的 Q5 原句已由 Q15／Q14 定案取代，但 ADR-490 §10 的 Q5 列本身沒跟著改（文件漂移，§6.5）。
 - 名稱規則**管得到** Codex 的 MCP、sub-agent 與 code mode 工具（Amendment E 取代了 Amendment C 的「不得聲稱」）。必須同時寫明兩個上限：`exec` 腳本裡呼叫的工具看不到；client 改 MCP server 名稱就對不上。不可再寫「名稱規則管不到 code mode」或「只有 Tool 使用設為禁止才擋得住」。
 - 強制模式的 Console 說明先寫「agent 會看到什麼依平台的設定而定」，再寫預設行為；不再寫「那一輪就會以 API Error: 400 結束」或「預設仍會擋下那一輪」；不寫「工具錯誤」「tool error」；sentinel 名稱不進 Console 文案（glossary §3.5.1「coding agent 的保護程度」列）。
 - 仍有效的紅線（PRD-337 §3.8）：不得寫「防止 agent 執行危險指令」「模型看不到被禁的工具」「保證叫不動」「Codex 叫不動」；保護程度寫「減少暴露」。
@@ -387,7 +387,7 @@ wire 的形狀：
 | `components/features/policy/tool-governance-effective*.ts(x)`、`components/features/application/policies-tab.tsx` | effective-policy 逐欄來源的顯示，含契約列（feature 關時濾掉） |
 | `app/(main)/(overview)/(dashboard)/_components/pre-release-rows.ts`、`_tabs/safety-policy/initial-layout.ts` | dashboard 的 Tool 規則違規列（G4） |
 | `lib/pre-release-features.ts` | `PRE_RELEASE_FEATURE_NAMES` 含 `tool_governance` 與 `tool_argument_contracts` |
-| `i18n/messages/{en,zh-TW}.json` | 譯名照 glossary。`policy_violation_code` 已有 `tool_call_denied` 與 `tool_arguments_denied`；`modeEnforceBlocks`、`scopeNoticeCodex`、`denyNamesBlocks`、`scopeNoticeNameRules`／`scopeNoticeArguments`、`codexNotes`、`claudeCodeSearchViaBash`；Policies 教學 `tutorial.pages.policies.fields.*` 也改成「那個呼叫不會被執行」 |
+| `i18n/messages/{en,zh-TW}.json` | 譯名照 glossary。`policy_violation_code` 已有 `tool_call_denied` 與 `tool_arguments_denied`；`modeEnforceBlocks`、`denyNamesBlocks`、`codexNotes`（`scopeNotice*` 五個鍵隨說明框於 2026-10-19 刪除）、`claudeCodeSearchViaBash`；Policies 教學 `tutorial.pages.policies.fields.*` 也改成「那個呼叫不會被執行」 |
 | `../contracts/tool-argument-contract.consumer.v1.json` | IAM compile vectors 的 consumer 副本（project.yaml 登記為 `console-next-tool-argument-contract`） |
 
 kind 的選項由 `usePreReleaseFeature('tool_governance')` 控制顯示。
