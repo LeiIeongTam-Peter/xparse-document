@@ -1,13 +1,76 @@
 # vLLM prefix cache（前情共用）：已完成的工作與待修清單
 
-- **狀態日期**：2026-10-18
-- **基準**：`futurenestit/xparse` origin/main `cd1b1e84b`（§1–§8 原文以 2026-10-17 的 `e329c51c2` 為準）
+- **狀態日期**：2026-10-19
+- **基準**：`futurenestit/xparse` origin/main `127db0857`（§0a 以 2026-10-18 的 `cd1b1e84b` 為準；§1–§8 原文以 2026-10-17 的 `e329c51c2` 為準）
 - **讀者**：接手修理剩餘問題的 agent／工程師
 - **一句話**：
   - 快取在 main 上已經修好，本機實測重用率約 99%。
   - 13 張 issue 修好 12 張；W11（聊天機器人打 Claude 自動快取）已 merge，並在本機驗過。
-  - 範圍外的發現也處理了一批，見 §0a。
-  - **這些都還沒部署到 rel 和 prod**；本機 stack 也還跑在 `8133bb33e`，所以本機看不到今天 merge 的修正。
+  - 2026-10-19：#6775（聊天機器人的「跳過快取」永遠是 0）照 owner 決定全做，7 個 PR 都已 merge；本文件勾選的 #6790、#6791、#6792、#6794、第 13、14 項也都已 merge。見 §0b。
+  - **這些都還沒部署到 rel 和 prod**；本機 stack 跑在 `bc01d0a4f`，看不到 2026-10-19 merge 的修正。
+
+---
+
+## 0b. 2026-10-19 狀態更新（最新，先讀）
+
+**還沒做完的事**
+
+1. **#6775 的 live 驗收**：要一個關掉「自動 Prompt Caching（Claude）」的專用測試應用（Peter 開），以及本機 stack 更新到 `127db0857` 之後在 Console 看「跳過快取」計數、「其中 Xparse 自動 Prompt Caching」與暫停清單。#6775 因此還開著。
+2. **部署**（要 Peter 授權）：見下方「部署要注意的」。
+3. **後續 issue**（草稿已備，待 Peter 核准）：#6792 Desired 2（驗證失敗 400 的稽核紀錄）、#6791 的 OpenCode chat 串流、`/v1/messages` 翻譯路徑遺失 top-level `cache_control` 意圖、`PUT /applications` 宣告了 `app_type` 卻不存、兩個建立 application 的端點默默丟掉未宣告欄位、Audit raw-bridge debug 路徑 500。
+4. **#6695／#6699 的 migration 編號**：見「部署要注意的」。
+
+**#6775（owner 決定，2026-10-19）**
+
+- **跳過快取的定義**：Chat／Responses 打 Anthropic 直連，`prompt_cache_auto_skip` 是 `app_off` 或 `force_off`，而且 gateway 本來會加標記（有 system prompt，或已多輪）才算；有 `prompt_cache_origin` 記為有快取；`suspended`、沒東西可標、其他 provider（含 Bedrock）不寫。`/v1/messages` 規則不變，只是 top-level `cache_control`（Anthropic 自動快取）也算有意圖。
+- **節省**：標題維持總額，加「其中 Xparse 自動 Prompt Caching」（LiteLLM 的做法）；不列「客戶端要求」那塊——Claude Code 的 `/v1/messages`、Bedrock、供應商自動快取都沒有來源紀錄。#6775 最後一條驗收照此改寫（PRD-299 §11.8）。
+- **兩條資料來源都改**（IAM aggregate／Audit）；暫停過的應用列在卡上。
+- **其他平台**：只有 LiteLLM 有漏掉的快取卡與 gateway 注入的份額；沒有任何平台記錄沒快取的原因。出處見 `docs/research/RESEARCH-claude-auto-prompt-cache-openai-protocol-clients-2026-10-17.md` §3.4。
+
+| 片 | PR | merge commit | 內容 |
+|---|---|---|---|
+| S0 文件 | #6819 | `5e17f4913` | PRD-299 Amendment A、ADR-382 Amendment E（INV-382-6 修訂、INV-382-16／17）、ADR-489 Amendment B（INV-489-10）、SPEC-302 Rev.22（C-302-87／88、C-302-72 有期限例外）、SPEC-331 Rev.2（CT-331-20／21）、SPEC-064 §6.10、RESEARCH §3.4 |
+| S1 IAM | #6831 | `a4e83f390` | `UsageLedgerEntry.prompt_cache_origin`（migration `0397`，依賴 `0395`）；append 未知值 422、納入冪等比對；aggregate 維度＋filter＋`coverage.prompt_cache_origin_since`；OpenAPI 重產、七處 digest 重釘 |
+| S2a gateway | #6829 | `c5804d06c` | chat／Responses 寫頂層 `cache_control_missing`；`cache_control_intent` 只在 `/v1/messages` 有效（probe 證實 chat client 能自帶它、讓 Claude／Bedrock 收到標記，已修）；ADR-372 註解改正 |
+| S2b gateway | #6845 | `127db0857` | 生成嘗試的 token／cost／託管工具列帶 `prompt_cache_origin`；`ledger-producer-parity-gate` INV-O |
+| S3a Audit | Xparse-Audit#207 | `51d35cb84` | `/dashboard/usage-cost` 的 `prompt_cache` 區塊（來源、跳過原因、暫停過的應用；不可用為 `null`、沒有為 `[]`） |
+| S4a Console | #6821 | `88a9ae9a4` | 事件明細依跳過原因給建議；扣住的部署不提開關 |
+| S3b＋S4b Console | #6844 | `0ec61f281` | 快取節省卡的子集與暫停清單；`3rd/xparse_audit` gitlink 推進到 `51d35cb84` |
+
+- **驗證**：
+  - 真 route 整合測試：S2a 76 個 CT-331-20 案例、S2b 28 個情境，皆先紅後綠。
+  - live（第二個 gateway，`peter` 應用，`claude-haiku-5-5`，12 個請求）：應用開 → `false`＋`prompt_cache_origin=gateway`；`XPARSE_PROMPT_CACHE_AUTO_FORCE_OFF=1` → `true`＋`force_off`。
+  - S2b：擷取 gateway 真實送出的 append bytes，重送進 S1 的真 append 端點（32 筆）；gateway 組的 `cost_saved_usd` 與手算一致。
+  - S3a：用本機 Audit 的 2000 筆真事件比對投影（gateway 39、client 137、app_off 2）。
+  - S4b：stub 資料的本機預覽截圖（五種寬度 × 中英文 × 六種狀態）。
+- **還沒驗證**：app_off 的 live 情境；部署後的 Console 畫面；Audit 路徑的子集只有測試涵蓋（只在 `auto_prompt_cache` 比 `cost_surfaces_from_iam` 先發佈時出現）。
+
+**本文件勾選的順手修（都已 merge）**
+
+| Issue | PR | merge commit | 要知道的 |
+|---|---|---|---|
+| #6790 503 `queue_overflow` 補 `Retry-After` | #6816 | `8445d38ba` | 值＝`clamp(ceil(估計等待秒數), 1, queue_timeout_sec)`，tenant 預設是 2 秒。實測 Codex 0.163、OpenCode 1.19.2、Claude Code 2.1.303 都照它等，但都不會因此少打請求；OpenCode 自己的退避比 header 長，帶 header 反而較早放棄。SPEC-026 表裡 `queue_timeout` 原寫 408，順手更正為 504 |
+| #6792 驗證失敗的 400 補 `X-Request-Id` | #6814 | `f9b43c184` | body 不變，加一行 WARNING；Desired 2（稽核紀錄）拆出，待開 issue |
+| #6791 context overflow 回 `context_length_exceeded` | #6820 | `045ad38d2` | Codex 與 OpenCode（Responses）改善；**OpenCode 走 chat 串流沒有改善**：錯誤在 HTTP 200 之後以串流 chunk 送達，OpenCode 不分類，runbook 的 `limit` 設定仍然需要（待開 issue） |
+| #6794 `PUT /applications` 打錯欄位回 422 | #6815 | `735a77042` | `skill_selections` 保留專屬 400；OpenAPI 重產、七處 digest 重釘 |
+| #6817（範圍外第 14 項）LLM Proxy 拒寫 `auto_prompt_cache_enabled` | #6830 | `7f00eda72` | 只擋 `app_type == "llm_proxy"`：legacy `api` 列仍持有 client key、開關有效，所以不擋（與 issue Desired #1 的差異已在 issue 與 PR 說明）；INV-382-18、SPEC-331 Rev.3 |
+| #6818（範圍外第 13 項）稽核員的設定頁唯讀 | #6822 | `56a45fbe9` | Model Constraints & Routing、Execution Settings 與 LLM Proxy 頁的 Operation Mode 都改唯讀 |
+
+**部署要注意的（這批）**
+
+- **順序**：IAM（#6815、#6830、#6831）先；gateway（#6814、#6816、#6820、#6829、#6845）與 Console（#6821 不晚於 #6829；#6822）同批；Audit（Xparse-Audit#207）任意；#6844 最後（IAM 或 Audit 是舊版時，只把子集那一行顯示為無法取得）。
+- **OpenAPI 改了兩次**（#6815、#6831）：IAM 與 gateway image 同批部署。
+- **migration `0397`** 只新增欄位。**#6695／#6699 的 `0396` 仍依賴 `0395`**：任一個照現狀 merge，main 會出現兩個 migration leaf；merge 前要改成依賴 `0397`（建議改號 `0398`）。
+- **prod 與客戶安裝**的 W11 仍扣住：每個有 system prompt 或多輪的聊天機器人打 Claude 的請求，都會算成「跳過快取」，計數會從 0 跳上來（那裡看不到開關，提示只建議客戶端自己要求 Prompt Caching）。
+- **W11 發佈 PR** 除了既有 call site，還要刪這次新加的 `usePreReleaseFeature("auto_prompt_cache")`：`components/features/monitor/event-explanation.tsx` 與快取節省卡（#6844）。
+- **client 看得到的改變**：#6791 改了 chat／Responses 對 context overflow 的錯誤碼；#6790 讓每個 503 `queue_overflow` 多一個 `Retry-After`；#6794 讓 PUT 帶未宣告欄位從 200 變 422；#6830 讓改 proxy 列開關的 API 寫入回 400。
+
+**§0a 範圍外發現的新狀態**
+
+- 第 5 項：#6775，程式都已 merge，等 live 驗收。
+- 第 6 項：ADR-372 註解已在 #6829 與 Xparse-Audit#207 改正；`production/prefix_affinity.py` 的最短長度表仍另案。
+- 第 13 項：#6818 已修。第 14 項：#6817 已修。
+- 其餘（7、8、10、11、12、15）不變。
 
 ---
 
