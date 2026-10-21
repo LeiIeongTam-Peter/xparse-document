@@ -1,6 +1,15 @@
 # Xparse PII 遮罩 — 這是什麼、我們怎麼做、什麼還沒做
 
 > 交接文件，寫給新 session／另一個 agent／想知道我們到底做了什麼的人。
+> **2026-10-21 更新（AWS Bedrock 成為 PII 的第二個語意偵測器，也是 content_filter 的第五個判定來源；ADR-522／PRD-375／SPEC-219 C-219-50..56／SPEC-223 C-223-69..76。細節見新增的 §2.9 與 §3.9）**：
+> - **怎麼開**：政策的 Engine 選「AWS Bedrock」，PII 的語意偵測就改由 AWS `InvokeGuardrailChecks`（東京 `ap-northeast-1`）做；選其他 Engine 照舊用 GLiNER。#6977 起 PII 區塊沒有自己的偵測引擎選單，偵測器跟著 Engine 走。政策要指名一把 `bedrock` 憑證（`bedrock_credential_ref`），這把憑證必須以「Guardrail」用途、選了 region 建立。
+> - **§0 那句「原文不出境」從此只對 GLiNER 成立。** 選 Bedrock 的政策會把**未遮罩的原文**送到 AWS——要找出個資在哪裡，就得送原文。INV-309-2 改寫成「選用，且出境前先過資料邊界閘」（C-219-55）：地端 app（`profile_type: on_prem`）、`data_egress=denied` 的 key、設了 `XPARSE_ONPREM_ENFORCE` 的部署 → 零連線、503，shadow 也一樣零連線。regex 層與遮罩仍在地端 sidecar，`mask_text` 仍是唯一產生代號的地方。
+> - **Bedrock 偵測不到四類**：`national_id`、`birthdate`、`gender`、`messaging_id` 只靠 regex，Console 標「僅限地端比對」。
+> - **fold 改依 engine 分組**（`pii.detectors[]`，最多兩組）：兩層指名不同偵測器時兩個都跑、結果聯集、只遮一次；同一個偵測器跨層照舊（entities 聯集、門檻取最低）。content_filter 的設定也改依 engine 合併。
+> - **PR**：#6900（PRD-375／ADR-522）→ #6901、#6904（憑證）→ #6958–#6961、#6964–#6966、#6969、#6972、#6973（IAM、sidecar、gateway）→ #6974、#6975、#6977、#6978（Console），全部已 merge。**#7021 把 Bedrock 和 Jev 從 pre-release 畢業到所有部署**（rel、prod、客戶安裝都算）。**尚無環境部署**，目前只在 Peter 本機 stack 跑過。
+> - **實測（2026-10-21，本機 stack、真 AWS）**：「陳大文／手機／email」遮成 `[NAME_…]`／`[PHONE_…]`／`[EMAIL_…]`，身分證由 regex 遮；威脅句 451（violence 0.8）；`on_prem` app 回 503、PII 檢查 0.14 ms、零 AWS 呼叫。報告在 `~/Desktop/testing/bedrock-guardrail-2026-10-21/REPORT.md`。
+> - **還沒做的**：繁中校準語料（content 的 0.4／0.6／0.8 切點是暫定值）、在共用 dev 環境用真 key 跑端到端。見 §3.9。
+>
 > **2026-09-29 更新（PII 這條 rail 的 fold 改了一條，[#5443](https://github.com/futurenestit/xparse/pull/5443) 已 merge main，本地 dev 實測：停用層的 phone 不再被遮）**：下一段提到「`pii` 與 `word_filters` 理論上有同一種漏法」——**實測證實且已修**：某層 `pii: {enabled: false, entities: [phone], score_threshold: 0.4}` 以前會把 `phone` 與 0.4 聯進生效政策（實跑真的遮 phone）；現在停用的 `pii` 區塊是 fold identity（不貢獻 `entities`、門檻取 1.0 的 identity），只有 `enabled` 仍是 OR（SPEC-219 **C-219-49**，ADR-476 Amendment H）。`word_filters` 同步（SPEC-224 C-224-21）。policy-level `scan_system` 不受影響。部署時對靠停用層漏進來的 entity 是一次放寬。
 >
 > **2026-09-22 更新（Jev guardrail 對打實測；PII 這條 rail 仍零改動）**：對 dev 真 gateway 跑了 175 題 Jev vs 內建 gpt-5.4 judge 的同題對打（`~/Desktop/testing/問題集.md` §12、PRD-332 §9 補記），結論與四項修正見同資料夾 `policy.md` 頂端。跟本文有關的只有一件：**classifier rail 的 fold 改為「停用即空」（SPEC-223 C-223-61，#5208）**——但 `pii` 與 `word_filters` 沒改，它們的 `enabled` OR + `entities`／`terms` 聯集理論上有同一種漏法（停用的 `pii` 區塊仍貢獻 `entities`），這輪未實測、SPEC-219 另案，ADR-476 §7.4 留了 follow-up。**（2026-09-29：已實測證實並修掉，見上一則。）**
@@ -14,7 +23,7 @@
 > **2026-09-14 晚更新**：#4764／#4765／#4766 已 merge。OpenCode 一句 `hi` 被 451 揭出三個缺陷 → **ADR-448 Amendment E（#4806）**：純文字 parts 陣列進改寫面、PII input 每次呼叫以剩餘預算為 timeout（預算 8 s → 30 s）、快取只存裁決；部署 dev 後長 system prompt 仍 503 → **Amendment F（#4807）**：sidecar 對 GLiNER 的 15 s timeout 是第三個常數，改為 gateway 把剩餘預算以 `timeout_ms` 帶下去。兩個都 merge 並部署到 dev（sidecar image 13:29 重建）。**剩下的是容量**：OpenCode 在 repo 目錄會把 `AGENTS.md`（36k 字）摺進 system prompt，CPU GLiNER 高載 ~1.3k 字/s、30 s 掃不完，dev `.env` 暫把 `XPARSE_PII_SCAN_BUDGET_MS` 拉到 120000；設計選項見 `docs/issues/agent_llmproxy.md` §9a。
 > 現況基準（2026-09-17 12:xx，`26f7b70f3` = #4958 squash）：下一行 09-15 基準的全部 **+ #4951（Am.H／Am.A 契約）+ #4959（IAM `scan_system` policy 層 + `scan_tool_results` + audit_catalog 四欄）+ #4961（G1：tool 形狀結尾跳過 classifier、`ClassifierVerdictCache`、Responses content_filter 最後一則 user item、`guardrail_surface_system_skipped` 進 audit、`scan_text` 含工具參數葉值）+ #4957（G3：content_filter llm_classifier arm 吃 transcript、gateway 讀 policy 層 `scan_system` OR alias）+ #4954（Console：開關搬「保護設定」、`scan_tool_results` 開關）+ #4958（G2：Responses PII 寬面涵蓋 assistant 項／`function_call.arguments`／`function_call_output`、step-1 slot 依 type 分類）**。**+ #4969（G4：`content_filter.scan_tool_results` runtime——每個 tool 結果各判一次、per-tool memo、stage memo key 含 tool 文字、`classifier_target` audit 欄位、ceiling 走 `classifier_surface_too_large`、Semaphore(4)）**（`404b54a28`）。dev/rel/prod 都還沒部署這批——部署序 IAM → gateway → Console；Codex 使用者的 tool 輸出個資會開始被遮、首輪冷啟動變慢。
 > 現況基準：`origin/main` @ 2026-09-15 18:02（`9845e3db6`，含 #4806 / #4807 / **#4860**）—— **#4727 契約 · #4728 guardrails 偽陽性過濾 · #4729 gateway enforce 切換 · #4735 system 納入 · #4733 legacy `blocked_keywords` 接上 word_filters · #4764–#4766 review 修復 · #4806 Amendment E · #4807 Amendment F，全部已 merge**；#4527、#4528 已關閉。**main = 全對話（user／assistant／tool 訊息、tool 參數）遮罩；`system` 與 Responses `instructions` 則是 per-policy、`pii.scan_system` 預設 `false` ⇒ 未表態的政策不掃**（#4860 Amendment G，2026-09-15 起——**這一行在 09-15 之前寫的是「含 system」，那句自 #4860 起不再成立**）。 **rel 與 prod 都還沒帶這批**（兩個分支都沒有 `guardrail_input_surface.py`），部署面仍是「只遮最後一則 user 訊息」。部署序：#4728 sidecar image **先**，再 gateway。文中「PR-5 前」= rel/prod 目前的行為。**word filters（PRD-285）整條 rail 也只在 main**——rel（落後 **621** commits）與 prod（落後 **1061**，2026-09-15 重算）連 `guardrails/word_filters.py` 都沒有，見 §2.8。
-> 權威來源是 `docs/`：**PRD-241**（what/why）· **ADR-309**（how）· **ADR-448**（偵測面 ⊥ 改寫面）· **SPEC-219**（行為契約）。本文與它們衝突時以 `docs/` 為準。
+> 權威來源是 `docs/`：**PRD-241**（what/why）· **ADR-309**（how）· **ADR-448**（偵測面 ⊥ 改寫面）· **SPEC-219**（行為契約）· AWS Bedrock 那一層：**PRD-375**／**ADR-522**（2026-10-20 起）。本文與它們衝突時以 `docs/` 為準。
 
 ---
 
@@ -23,6 +32,8 @@
 **使用者貼進 AI 的個資，在送出公司之前被換成型別化代號；偵測個資的模型裝在客戶自己的機房，原文不出境。**
 
 一句話的代價也要講清楚：**main 已遮「輸入」的全部——user/assistant/tool 訊息、tool call 參數**（#4729，2026-09-13），而 **system 指令與 Responses `instructions` 是租戶自己決定要不要掃、預設不掃**（#4735 給了能力、#4860 Amendment G 把預設翻成關，2026-09-15）——但直到 **ADR-448 Amendment E（PR #4806，2026-09-14）** 之前這句只對 `str` content 成立：任何 list content（**含純文字 parts 陣列**，OpenAI SDK／AI SDK agent client 對多 part user turn 的送法）偵測到就 451，OpenCode 一句 `hi` 就被擋；Amendment E 起純文字 parts 逐 part 寫回，451 只留給夾 image／audio 的 list；**rel/prod 部署前仍只遮「最後一則 user 訊息」**。「只遮輸入」這個限定詞仍是缺口（輸出側不遮，見 §3.2）。
+
+> **2026-10-21**：「偵測個資的模型裝在客戶自己的機房」這半句只對預設的 GLiNER 成立。政策 Engine 選 AWS Bedrock 時，PII 的語意偵測在 AWS 東京做，送出去的是**未遮罩的原文**；regex 層與遮罩仍在地端 sidecar。見 §2.9。
 
 ---
 
@@ -45,6 +56,12 @@ PII 遮罩本身是 **commodity**——AWS Bedrock、LiteLLM、Portkey、Presidi
 2. **資料不出境**：hosted PII 偵測 API（把原文送去另一朵雲判斷）與「個資不出境」的訴求自相矛盾。我們的偵測模型跑在客戶部署範圍內（INV-309-2）。
 
 > **不要把這兩點寫成「我們有 PII 遮罩」去賣。** 那句話沒有差異化，而且一講就會被拿去跟人家的 feature 清單並排。
+>
+> **2026-10-21：接上 AWS Bedrock 不改變這兩點的賣法。** Bedrock 是給「已經核准用 AWS」的客戶的選項：
+> - 它的繁中偵測品質沒有評測證據，文案不得寫「更準／更安全／更適合中文」（PRD-375 U8 紅線）。
+> - 選它的政策就放棄了第 2 點，因為原文會送到 AWS。
+>
+> 差異化仍然是 GLiNER 地端那條路。
 
 ### 1.3 它不是什麼
 
@@ -55,7 +72,8 @@ PII 遮罩本身是 **commodity**——AWS Bedrock、LiteLLM、Portkey、Presidi
 | 不是合規認證 | 它是一個技術控制，不是「我們符合 GDPR/個資法」的證明。 |
 | 不是全對話保護（**rel/prod 部署前**；且 system 預設不在內） | 見 §3.1。main 已修（#4729），涵蓋 user／assistant／tool 與 tool 參數。**`system` 要另外開**（`pii.scan_system`，預設 `false`，#4860）——開了才遮，代價是 persona 名字與客服聯絡資訊也會被遮成代號；不開則 system 裡的個資原樣出境且稽核仍記 `pass`。見 §3.6。 |
 | 不是 prompt injection / jailbreak 防護 | 那些維度在 V1 收斂時全數移出（PRD-241 §1.1），由 ADR-318 的 classifier rails 另案處理。 |
-| 不是 Jev（或任何 hosted 判定服務）的工作 | 2026-09-21 Jev 進了 classifier rails（ADR-476），自然會有人問「PII 也交給 Jev 判不就好了」。**不行，兩個理由**：① Jev 回的是「是／否、機率、等級」，**沒有 span**——不知道個資在字串的哪裡就沒辦法遮；② 要判就得把**原文**送到 TypeSafe 的雲，直接違反 INV-309-2「偵測模型跑在客戶部署範圍內、原文不出境」，也就是 §1.2 我們賭的那件事。word filters 同理不用 Jev：決定性 matcher 誤擊 0%、個位數毫秒、免費、會回 span，而 Jev 在 held-out 上誤擊 16.7%，且**整份詞表每個請求都會送到第三方**（租戶的禁用詞本身常常就是機密）。出處：ADR-476 §3.1（workload-fit 論證，明文把 PII 與 word filters 列為 out of scope）· PRD-332 §1.4 Non-Goals。 |
+| 不是 Jev（或任何 hosted 判定服務）的工作 | 2026-09-21 Jev 進了 classifier rails（ADR-476），自然會有人問「PII 也交給 Jev 判不就好了」。**不行，兩個理由**：① Jev 回的是「是／否、機率、等級」，**沒有 span**——不知道個資在字串的哪裡就沒辦法遮；② 要判就得把**原文**送到 TypeSafe 的雲，直接違反 INV-309-2「偵測模型跑在客戶部署範圍內、原文不出境」，也就是 §1.2 我們賭的那件事。word filters 同理不用 Jev：決定性 matcher 誤擊 0%、個位數毫秒、免費、會回 span，而 Jev 在 held-out 上誤擊 16.7%，且**整份詞表每個請求都會送到第三方**（租戶的禁用詞本身常常就是機密）。出處：ADR-476 §3.1（workload-fit 論證，明文把 PII 與 word filters 列為 out of scope）· PRD-332 §1.4 Non-Goals。**（2026-10-21：AWS Bedrock 是這兩個理由的例外，見 §2.9。① `InvokeGuardrailChecks` 會回位置（`beginOffset`／`endOffset`，以 code point 計），所以能接進遮罩；② INV-309-2 已改成「選用，且先過資料邊界閘」（C-219-55）。Jev 仍然不做 PII。）** |
+| 不是「選了 AWS Bedrock 就全部交給 AWS」（2026-10-21 起） | Bedrock 只取代 GLiNER 那一層語意偵測：<br>• regex 層照跑，遮罩仍在 sidecar；<br>• `national_id`、`birthdate`、`gender`、`messaging_id` 四類 Bedrock 偵測不到，只靠 regex；<br>• sidecar 仍要活著，`/ready` 仍要求 GLiNER（ADR-522 §5.2）。<br>只選 Bedrock 的政策不會真的呼叫 GLiNER，但部署上還拿不掉它。 |
 
 ---
 
@@ -76,32 +94,54 @@ Console 作者面                IAM（治理）                    Gateway（�
 
 **邊界紀律**：Gateway 不 import guardrails 的 engine（INV-202-3，CI gate 擋）；IAM 與 guardrails 只透過 wire 與 pinned artifact 整合（PRD-302 / ADR-418）。
 
+**2026-10-21 起，政策 Engine 選 AWS Bedrock 時**（ADR-522 §2.2.6–2.2.7）：AWS 是由 gateway 呼叫的，因為 sidecar 不持有任何憑證。AWS 只回位置，遮罩照舊在 sidecar 做：
+
+```
+Gateway                                    AWS Bedrock（ap-northeast-1）           Guardrails sidecar
+───────                                    ─────────────────────────────           ──────────────────
+資料邊界閘 vendor_call_block_source ─不過─▶ 503 pii_detector_boundary_blocked（零連線，shadow 亦然）
+  │ 過
+  ▼
+POST /guardrail-checks/invoke  ─────────▶  sensitiveInformation：type、confidenceScore、
+（未遮罩原文；一次 ≤40 block／50k 字）       beginOffset／endOffset（code point）
+  ◀──────────────────────────────────────
+門檻過濾 → 反查 entity id → external_spans ───────────────────────────────▶ POST /v1/guardrails/check
+                                                                            regex 照跑；GLiNER 不跑（gliner_entities: []）
+                                                                            external span score ≤ 0.99，重疊時 regex 勝
+                                                                            merge_spans → mask_text（唯一的代號產生點）
+  核對 external_spans_accepted == 送出筆數 ◀────────────────────────────────  回 external_spans_accepted
+```
+
 ### 2.2 兩層偵測，12 類 entity
 
 單一來源：`apps/guardrails/xparse_guardrail/contract/pii_entities.py`（公開鏡像在 `contracts/policy-capabilities.v1.json`）。
 
-| entity id | token | 語意層（GLiNER label） | 決定性層（regex） |
-|---|---|---|---|
-| `person_name` | `NAME` | person | 中英文姓名介紹句、標記欄位 |
-| `email` | `EMAIL` | email | email 格式、標記欄位 |
-| `phone` | `PHONE` | phone number | 台灣手機／市話、北美電話、標記欄位 |
-| `national_id` | `NATIONAL_ID` | national id number | 台灣身分證／居留證、中國身分證 |
-| `passport` | `PASSPORT` | passport number | 標記欄位 |
-| `address` | `ADDRESS` | address | 標記欄位 |
-| `birthdate` | `DATE` | date of birth | 標記欄位 |
-| `age` | `AGE` | age | 一般年齡、標記欄位 |
-| `gender` | `GENDER` | gender | 標記欄位 |
-| `credit_card` | `CREDIT_CARD` | credit card number | 卡號 |
-| `messaging_id` | `MESSAGING_ID` | —（決定性專屬） | 標記欄位 |
-| `secret` | `TOKEN` | —（決定性專屬） | OpenAI key／JWT／AWS key／GitHub token／bearer／DB URL |
+| entity id | token | 語意層（GLiNER label） | 語意層（AWS Bedrock type，2026-10-21 起） | 決定性層（regex） |
+|---|---|---|---|---|
+| `person_name` | `NAME` | person | `NAME` | 中英文姓名介紹句、標記欄位 |
+| `email` | `EMAIL` | email | `EMAIL` | email 格式、標記欄位 |
+| `phone` | `PHONE` | phone number | `PHONE` | 台灣手機／市話、北美電話、標記欄位 |
+| `national_id` | `NATIONAL_ID` | national id number | —（只靠 regex） | 台灣身分證／居留證、中國身分證 |
+| `passport` | `PASSPORT` | passport number | `US_PASSPORT_NUMBER`（台灣護照號碼沒有實測） | 標記欄位 |
+| `address` | `ADDRESS` | address | `ADDRESS` | 標記欄位 |
+| `birthdate` | `DATE` | date of birth | —（只靠 regex） | 標記欄位 |
+| `age` | `AGE` | age | `AGE` | 一般年齡、標記欄位 |
+| `gender` | `GENDER` | gender | —（只靠 regex） | 標記欄位 |
+| `credit_card` | `CREDIT_CARD` | credit card number | `CREDIT_DEBIT_CARD_NUMBER` | 卡號 |
+| `messaging_id` | `MESSAGING_ID` | —（決定性專屬） | —（只靠 regex） | 標記欄位 |
+| `secret` | `TOKEN` | —（決定性專屬） | `AWS_ACCESS_KEY`、`AWS_SECRET_KEY`、`PASSWORD` | OpenAI key／JWT／AWS key／GitHub token／bearer／DB URL |
 
-- 決定性 span 帶 score 1.0，**永遠不被語意 span 擠掉**（C-219-19）。
-- 語意層 span 先過**偽陽性過濾**（#4728，四條規則；決定性層永不過濾），再把兩層結果經 `merge_spans` 去重疊（priority → score → 長度 → 位置），最後一次遮罩。過濾器自 #4765 起可用 `XPARSE_PII_FALSE_POSITIVE_FILTER=false` 關掉，見 §3.3。
+Bedrock 那一欄的對應只有一份常數，在 gateway 的 `guardrails/bedrock.py`（`PII_ENTITY_MAPPING`）。artifact 有鏡射，由 `bedrock-guardrail-parity-gate` 鎖住。AWS 回來的 type 若反查不到 entity id 就丟掉，因為那不是我們要求的。
+
+- 決定性 span 帶 score 1.0，**永遠不被語意 span 擠掉**（C-219-19）。Bedrock 的 span 進 sidecar 時 score 上限 0.99，所以同樣贏不了 regex（INV-522-5）。
+- 語意層 span 先過**偽陽性過濾**（#4728，四條規則；決定性層永不過濾），再把兩層結果經 `merge_spans` 去重疊（priority → score → 長度 → 位置），最後一次遮罩。過濾器自 #4765 起可用 `XPARSE_PII_FALSE_POSITIVE_FILTER=false` 關掉，見 §3.3。2026-10-20 起過濾器也套用在 Bedrock 的 span 上（`SEMANTIC_SOURCES = {"gliner", "external:bedrock_pii"}`）：四條規則看的是字面值，跟偵測器無關。
 - **刻意不做**姓氏 heuristic（`likely-chinese-full-name`）——誤判類別，設計上排除（C-219-5）。
 
 **引擎部署**：`apps/gliner-server/`，模型 `urchade/gliner_multi_pii-v1`，權重在 build 時烘進 image、runtime `HF_HUB_OFFLINE=1`。sidecar 只透過 HTTP 消費它（`XPARSE_GLINER_SERVER_URL`，預設 `http://xparse-gliner:8401`），零 import。
 
 **但 prod 與 rel 都沒有跑這個容器**——`gliner-server` 刻意不在 CI build matrix（2.43GB 權重），沒有 ECR image，兩邊都指向 air520 的地端機。所以那個 compose 預設值在任何真實環境都是錯的：漏設 `XPARSE_GLINER_SERVER_URL` 的環境會對每個 check 回 502。詳見 §5.2 與 `docs/runbooks/guardrail-gliner-onprem-endpoint-for-aws-xparse.md`。
+
+**Bedrock 不需要部署任何東西**（2026-10-21）：主機固定是 `https://bedrock-runtime.ap-northeast-1.amazonaws.com`，region 允許清單目前只有東京（IAM `domain/bedrock_guardrail.py` 的 `BEDROCK_GUARDRAIL_REGIONS`）。要的是租戶自己的一把 `bedrock` 憑證，用「Guardrail」用途建立並選 region，IAM 會把 region 推導成 endpoint 存起來。只用推論用途建立、沒有 region 的 `bedrock` key 不能拿來做 guardrail：投影回 `no_endpoint`，請求 503。細節見 §2.9。
 
 > ⚠️ **本機 dev 連 sidecar 本身都預設不會起**（2026-09-17 實測）。`docker-compose.dev-mvp.yml` 的
 > `xparse-guardrails` 同時被兩件事關著：`profiles: [guardrails]`（一般 `up` 不含它）**和** ECR image
@@ -155,7 +195,8 @@ kind: GuardrailPolicy
 metadata: { name: pii-baseline }
 spec:
   version: v1
-  engine: gliner_pii          # V1 唯一可寫值
+  engine: gliner_pii          # V1 唯一可寫值；v2 起可寫 bedrock_pii（ADR-522，2026-10-20），
+                              # 且同一個 version 必須帶 spec 層的 bedrock_credential_ref（C-219-56）
   enabled: true
   mode: shadow                # shadow | enforce，預設 shadow
   pii:
@@ -182,7 +223,8 @@ spec:
 | `pii.entities` | set-union（**只算啟用的層**；`enabled: false` 的區塊＝沒寫，C-219-49，2026-09-29 #5443） | 多的贏 |
 | `pii.score_threshold` | **min**（只算啟用的層） | 低的贏（更敏感） |
 | `pii.scan_system` | OR | on-wins（子 scope 可以把 system 加回面上，**永遠關不掉**） |
-| `engine`（**只指 PII 偵測器的 placement**，不是 classifier 的判定來源） | child-overrides | placement |
+| `engine`（**只指 PII 偵測器**，不是 classifier 的判定來源） | **依 engine 分組**（2026-10-20 起，C-219-50；之前是 child-overrides）。每個不同的值是一個偵測器，最多兩組，bundle 裡每個偵測器各跑一次。組內 `entities` 聯集、`score_threshold` 取最低；組與組不混。fold 後的快照多帶 `pii.detectors: [{engine, entities, score_threshold}]`，只由 fold 產生，作者寫入帶它會 400。 | 多的贏：下層可以加偵測器，拿不掉上層的 |
+| `bedrock_credential_ref`（spec 層，PII 與 content 兩條 rail 共用；2026-10-20 起） | ancestor-pin；同層依 binding `precedence`（C-223-67） | 上層釘了用誰的 AWS key，下層換不掉 |
 | `word_filters.enabled` | OR | on-wins（§2.8） |
 | `word_filters.terms` | set-union（**只算啟用的層**，C-224-21；fold 後上限 800、停用層的詞不算，超過 fail-closed C-224-53） | 多的贏；同一個詞在兩層動作不同時 **block 贏**（收緊） |
 | `word_filters.terms[].replacement` | ancestor-pin；同層依 binding `precedence` | 跨層上層的贏；**同一層**兩個 binding 給同一個詞不同 replacement → 依 binding `precedence`（小者優先，同分先建者）選一個（ADR-488 / SPEC-224 C-224-19，已 merge 未部署；之前是綁定 409，更早是綁定成功、每個請求 fail-closed）。fold 後超過 800 詞仍會綁定 409（SPEC-195 C-195-47） |
@@ -191,9 +233,14 @@ spec:
 
 > classifier 兩條 rail（`on_topic`／`content_filter`）的 fold 不在這張表：`engines` 跨層**聯集**（子層只能加、不能換掉上層的 engine，全部並跑、任一個擋就擋）、`on_topic.constraints` 跨層聯集但 runtime 要求**每一條都成立**（兩層寫不同主題 ≈ 全擋）。兩者都是刻意設計；2026-09-29 起綁定 dialog 會用一行 `composition_preview` 講出來（SPEC-223 C-223-64）。完整說明見 `policy.md`〈Inherit 怎麼算〉。
 >
+> **ADR-522（2026-10-20，PR-10 #6969）**：`content_filter` 的類別、門檻、stage、`scan_tool_results` 改成**依 engine 分組**合併，輸出 `classifier.content_filter.engine_configs[]`。不同 engine 只判各層指名給自己的部分，不再每個 engine 都拿整條 rail 合併後的設定。
+> - 單一 engine 的政策逐位元不變。
+> - 不同層指名不同 content engine、而且設定不同的 bundle，實際執行會變寬：不變量是「每一層自己寫的要求都還在」（INV-522-3），不是「每個 engine 都判全部」。
+> - 盤點指令 `inventory_guardrail_engine_configs`（唯讀）可以在部署前列出受影響的單位。
+>
 > **ADR-488（2026-09-29，已 merge 未部署）**：內建 judge 釘的模型（`auto` 不算）、on_topic 範本（`xparse` 算）、NemoGuard 端點改成跨層、同層都**疊加、每個都跑**（主題限制＝模型 × 範本各判一次）；`fallback_model`、OpenAI moderation／Jev 憑證跨層上層贏、同層依 binding `precedence` 選。部署順序 gateway → IAM → Console。完整規則見 `policy.md`〈Inherit 怎麼算〉。
 
-寫入邊界 fail-fast：未知 entity id → 4xx；threshold 出界 → 4xx；帶任何 legacy 欄位 → 4xx `GUARDRAIL_LEGACY_SCHEMA`（C-219-1/2）。`entities: []` **合法**，folds/enforces 成 no-op（C-219-3）。
+寫入邊界 fail-fast：未知 entity id → 4xx；threshold 出界 → 4xx；帶任何 legacy 欄位 → 4xx `GUARDRAIL_LEGACY_SCHEMA`（C-219-1/2）。`entities: []` **合法**，folds/enforces 成 no-op（C-219-3）。`engine: bedrock_pii` 的 version 會在這三種情況被擋成 400（C-219-56）：不是 v2；沒帶 `bedrock_credential_ref`；ref 指不到本租戶一把現存的 `bedrock` 憑證。ref 是指到別家 provider 的同名憑證也算指不到。entitlement 留到 runtime 才驗。
 
 ### 2.5 shadow / enforce 與失敗語意（SPEC-219 §6）
 
@@ -206,13 +253,22 @@ spec:
 | 偵測到但**改寫不了**（**含非文字 part** 的 list content、壞 JSON 參數、遮罩拆不回同數葉值） | **451** `guardrail_unredactable_span`。⚠️ Amendment E（PR #4806）之前**任何** list content 都算改寫不了，含純文字 parts 陣列——step 1 路徑回 `input_blocked`、寬面回 `guardrail_unredactable_span`，同一個請求兩種 451 | 轉送原文，observe |
 | 掃描**超時**（`XPARSE_PII_SCAN_BUDGET_MS`，**Amendment E 起預設 30000**；每次引擎呼叫的 HTTP timeout 也由剩餘預算導出） | **451** `guardrail_scan_budget_exceeded`。⚠️ Amendment E 之前 per-call 受 `XPARSE_GUARDRAIL_TIMEOUT_SEC`=5 s 約束、比 8 s 預算短——預算從未真正生效，17k 字 system prompt 一律 503 `guardrail_timeout`。**還有第三個常數（2026-09-14 晚 dev 實測）**：sidecar 對 GLiNER 自己的 `XPARSE_GLINER_TIMEOUT_MS` 預設 **15000**，超過回 502 → gateway 記 `engine_error` 503；dev compose 的 guardrails service 只 passthrough `XPARSE_GLINER_SERVER_URL`，這個 knob 寫進 `.env` 也到不了容器。GLiNER 負載高時 15k 字要 24 s（低載 10 s），所以 gateway 預算 30 s 對單一長訊息仍不成立。本機暫時用 `~/Desktop/testing/guardrails-gliner-timeout.override.yml`（`-f` 附在四個 dev compose 之後）把它拉到 30000；正解 = **PR #4807（ADR-448 Amendment F）**：gateway 把剩餘預算以 `timeout_ms` 帶進 check 請求、sidecar 以它為 GLiNER timeout，15 s 預設只剩無 deadline 呼叫者的退路；compose 也補了 passthrough。merge 後要 **rebuild** 本地 `xparse-guardrails:dev`（無 live mount）再 recreate，override 檔才可刪。**#4807 部署到 dev 後（2026-09-14 21:45）**：deadline 傳遞正確（sidecar 準時在 30.07 s 回 502），但 OpenCode 在 repo 目錄下會把 `AGENTS.md`（xparse/ 36k 字、X-parse/ 16k+37k 字）摺進 system prompt，CPU GLiNER 高載時只掃 ~1.3k 字/s，30 s 掃不完那一則、timeout 依 C-219-45 不進快取 → 每輪重炸、永遠暖不起來。dev 的 `.env` 已把 `XPARSE_PII_SCAN_BUDGET_MS` 拉到 120000（首輪約 40–60 s，之後命中快取）。**這是容量／設計題**：長 system prompt 的冷啟動成本，選項見 issue 文件 §9 補記 | n/a（shadow 只截斷記 log） |
 | 偵測面**超過上限**（`XPARSE_PII_DETECTION_SURFACE_MAX_MESSAGES`，24） | **451** `guardrail_surface_too_large` | 同上 |
+| **Bedrock 偵測器被資料邊界閘擋下**（2026-10-21 起；`on_prem` app、`data_egress=denied` 的 key、`XPARSE_ONPREM_ENFORCE`） | **503** `guardrail_service_unavailable`，零連線；audit 的 violation 是 `pii_detector_boundary_blocked`（C-219-53／55） | 轉送原文、零連線、記錄邊界來源 |
+| **Bedrock 憑證不能用**（沒指名、不存在、沒授權、沒有 region endpoint、host 不是允許的 `bedrock-runtime` region） | **503** `engine_error`，零連線；gateway log 會寫明原因，例如「credential has no guardrail endpoint」 | 轉送原文，audit 記 `degraded` |
+| **AWS 回錯**（401／403／429／400／5xx、格式錯、位置超出範圍、sidecar 回的 `external_spans_accepted` 跟送出數不符） | **503** `engine_error`（`guardrail_service_unavailable`）。429 永不重試，連線層失敗重試一次 | 轉送原文，audit 記 `degraded` |
+| **Bedrock 逾時**（單次上限 = min(剩餘掃描預算, `XPARSE_BEDROCK_PII_TIMEOUT_MS`，預設 10 s)；Bedrock 花掉的時間會先從預算扣，再算給 sidecar 的 `timeout_ms`） | **503** `engine_timeout`（`guardrail_timeout`） | 轉送原文，audit 記 `degraded` |
+| **AWS 回 `truncated: true`**（它沒看完） | **451** `guardrail_surface_too_large`（violation `pii_detector_truncated`），絕不送出部分遮罩的內容（INV-522-6） | 轉送原文，observe |
 | 綁了政策但**沒有任何 active rail** | 轉送——寬面根本不進入，任何長度都不會 451（C-219-41，PR #4766） | 同左 |
 
 > ⚠️ **第一列的「audit 記型別」在 #4766 之前是文件寫了、實作沒做。** `pii_entities_found` 從來沒進過任何 audit event——兩個 emit 點都只帶 `_word_filter_audit_fields`，而 tuple 會被 audit bridge 的 `_filter_extra` 靜默丟棄。所以 rel/prod 今天的 audit **看得到「擋了」、看不到「偵測到什麼」**。#4766 補上 `guardrail_pii_entities_found` / `guardrail_pii_entity_count`（三處宣告：handler + `audit/schema.py` + `PAYLOAD_ALLOWLIST`，漏一處靜默丟棄）。
 
 > **這三個 451 的客戶端訊息（PR #4851，已 merge）**：`guardrail_unredactable_span` / `guardrail_scan_budget_exceeded` / `guardrail_surface_too_large` 在 #4851 之前的 `message` 是 `Request blocked by guardrail: unredactable_span` 這類內插——**把內部 violation type 吐給客戶端**，而且完全不 actionable。#4851 起三者各有 curated 文案（「請求含無法遮罩的個資，請移除或改寫」／「對話太長，時間內掃不完，請縮短或開新對話」／「對話太大，請縮短或開新對話」），機器可讀身分留在 `code` 欄位。**這對 agent client 是有感的**：實測 Claude Code 把 `message` 逐字印給使用者（`API Error: 451 <message>`），所以這串字就是使用者唯一看得到的東西。
 
-兩條硬規則：客戶端 request body **不能**覆寫任何 guardrail 行為（C-219-20）；audit／log／response 只帶 entity id 與數量，**原文不得出現**（C-219-21，grep 可驗）。
+> **Bedrock 的五列都不寫進遮罩快取**（C-219-53／54，INV-522-7）。換了憑證也不會命中前一把的結果：有 Bedrock 時，快取指紋含偵測器設定與 `credential_uuid`。2026-10-21 實測過：同一句話換到一把會被 AWS 拒絕的 key，連送三次，三次都重打 AWS、都拿到 403，沒有吃到舊的遮罩結果。
+>
+> ⚠️ **429 是租戶自己的配額問題，但看起來會像我們壞了。** AWS 的上限是每個帳號、每個 region 1,500 RPM，同帳號的推論也算在內。PII 寬面一個請求通常兩次 Bedrock 呼叫：step 1 一次，其餘沒命中快取的條目批次送，每批最多 40 個 block、50k 字。agent loop 的穩定狀態也是兩次，因為舊條目都命中遮罩快取。超過配額時，該租戶 enforce 的請求會全部 503。導入前先在 shadow 量一下用量。
+
+兩條硬規則：客戶端 request body **不能**覆寫任何 guardrail 行為（C-219-20）；audit／log／response 只帶 entity id 與數量，**原文不得出現**（C-219-21，grep 可驗）。2026-10-21 起 Bedrock 也一樣：audit 只多帶呼叫次數與文字單位（`guardrail_pii_detector_calls`、`guardrail_pii_detector_text_units`），8 筆 trace 都 grep 不到原文。
 
 ### 2.6 作者面
 
@@ -222,6 +278,18 @@ spec:
 | **Runtime preview** | `POST /v1/guardrails/preview` | 用 API key 解析出的**實際生效政策**跑，拒絕任何 override（C-219-20/22）。 |
 
 Console 的遮罩結果會把 token 高亮（兩種尾碼形式都認）。
+
+**Bedrock 在作者面上的樣子**（2026-10-21；#6974、#6977、#6978）：
+- **偵測器跟著 Engine 走**：Engine 選 AWS Bedrock 就寫 `bedrock_pii`，其他 Engine 寫 `gliner_pii`。PII 區塊沒有自己的偵測引擎選單。API 與 GitOps 仍可以「content 用 A、PII 用 B」分開寫；Console 載入這種版本時，會在 PII 區塊說明存檔後偵測器會改成什麼。
+- **一個共用的 Bedrock 憑證欄位**（content 與 PII 共用）：下拉只列有 region endpoint 的 `bedrock` 憑證，推論用的 key 不會出現。
+- **四類「僅限地端比對」標示**：`national_id`、`birthdate`、`gender`、`messaging_id`。
+- **資料外送揭露**：「受檢文字會送到 AWS」。
+- **content 的限制**：門檻旁標「未校準」，不提供 `self_harm` 並說明原因（Bedrock 沒有這一類）。
+- **dry-run 不呼叫 AWS**：Bedrock 草稿只跑 regex（`gliner_entities: []`），回應帶 `semantic_layer_previewed: false`，畫面寫「這次測試不會呼叫 AWS Bedrock」。所以沒有自我介紹句型的姓名在 Bedrock 草稿的 dry-run 裡不會被遮；這是預覽的限制，不是 runtime 的行為。
+- **runtime preview（`/v1/guardrails/preview`）會真的呼叫 Bedrock**，也一樣過資料邊界閘（C-219-52）。
+- **憑證頁**：
+  - Bedrock 憑證有「測試」按鈕（`POST /iam/provider-credentials/{uuid}/test-bedrock-guardrail`），一次測 content 與 PII，含 😀 與 👨‍👩‍👧 的位置；
+  - 「適用於」欄逐把判斷，沒帶 region 的 Bedrock key 只列「模型推論」。
 
 ### 2.7 檔案地圖
 
@@ -278,6 +346,29 @@ apps/iam/xparse_iam/xparse_iam/
 frontend/console-app-refactor/src/app/(main)/(ai-gateway)/policies/_components/policy/policy-content-form.tsx   word_filters 作者面（terms 表格：term / action / replacement）
 
 .github/scripts/guardrail-detection-surface-gate.py   偵測面 roster gate（新）
+
+# ── 2026-10-20／21：AWS Bedrock（ADR-522）──
+apps/guardrails/xparse_guardrail/
+  contract/request.py             ExternalSpan + external_spans 驗證（≤1000 筆、code point 邊界、entity ∈ pii_entities）→ 422
+  contract/profile.py             gliner_entities（None = 同 pii_entities；() = 不呼叫 GLiNER）
+  engine/gliner_pii/adapter.py    external spans 在 regex 之後注入（score ≤ 0.99、source "external:bedrock_pii"），回 external_spans_accepted
+  engine/gliner_pii/false_positive_filter.py   SEMANTIC_SOURCES = {"gliner", "external:bedrock_pii"}
+
+apps/gateway/bustream/gateway/
+  guardrails/bedrock.py           凍結的詞彙：PII_ENTITY_MAPPING、CATEGORY_MAPPING、SEVERITY_CUTOFFS、region／host／path（純資料，無 I/O）
+  bedrock_guardrail_arms.py       content arm 與 AWS 呼叫（邊界閘、憑證斷言、強度對應）；HTTP 走跟 Jev 共用的
+                                  jev_transport.post_systemone（每把憑證一個只因逾時而跳的斷路器：3 次 → 開 30 s）
+  pii_detectors.py                PiiDetectorRuntime：邊界閘、預取、span 轉換；check_input 的 detectors 是必填
+  guardrails/engine_configs.py    依 engine 讀設定（沒有新欄位就從舊單值推導 = 今天的行為）
+
+apps/iam/xparse_iam/xparse_iam/
+  domain/bedrock_guardrail.py                 BEDROCK_GUARDRAIL_REGIONS（只有 ap-northeast-1）、host 規則
+  api/ninja_api/_bedrock_guardrail_probe.py   憑證「測試」按鈕的 probe
+  authorization/guardrail_engine_configs.py   依 engine 合併（pii.detectors[]、content_filter.engine_configs[]）
+  policies/bedrock_guardrail_content.py       engine id 常數、「指名 Bedrock 就要帶 ref」規則
+  management/commands/inventory_guardrail_engine_configs.py   唯讀盤點：依 engine 合併後，哪些單位的實際執行會變
+
+.github/scripts/bedrock-guardrail-parity-gate.py   gateway 常數 × artifact × IAM region 規則
 ```
 
 ### 2.8 同一份政策裡的第二條 rail：word filters（自訂詞，PRD-285 / ADR-389 / SPEC-224）
@@ -306,6 +397,72 @@ PII rail 管「有格式或語意特徵、但你列不出來的值」；**word f
 - **rel / prod 沒有這條 rail**（連 DTO 檔都不存在），部署 main 才會有。
 - 文件狀態落後於碼：PRD-285 仍 `Draft — design closure`、ADR-389 仍 `Proposed`。要嘛補 Accepted + 驗證紀錄，要嘛在文件標明「已實作、未部署」。
 - legacy `blocked_keywords`（舊 FK 平面的 CSV）自 #4733 起投影成這條 rail 的 `block` terms，見 §3.4。
+
+### 2.9 第二個語意偵測器：AWS Bedrock（ADR-522／PRD-375，2026-10-20／21）
+
+**為什麼要有它**（PRD-375 §1）：
+- 已經核准用 AWS 的客戶，可以用自己的 AWS 帳號做內容過濾與 PII 語意偵測，費用記在他們自己的帳上。
+- 雲端部署的 PII 遮罩不必只靠 air520 那一台地端 GLiNER（§2.2）。
+
+它**不是**比 GLiNER 更好的偵測器。繁中品質沒有評測證據，文案紅線見 §1.2。
+
+**用的是哪一支 API**：`InvokeGuardrailChecks`，`POST {endpoint}/guardrail-checks/invoke`，Bearer key。
+- 不用 `ApplyGuardrail`：那支要先在 AWS 建 guardrail resource，繁中還要 Standard tier、強制跨 region。
+- `InvokeGuardrailChecks` 不需要任何 resource，只回分數與位置、不攔截，攔不攔由我們決定。
+- 實測紀錄：`docs/research/RESEARCH-bedrock-guardrail-checks-probe-2026-10-20.md`。
+
+**什麼時候會跑**：生效政策裡有 `bedrock_pii` 偵測器時（任何一層綁定指名都算，§2.4）。流程見 §2.1 的第二張圖：
+- **在 gateway 端呼叫**：sidecar 不持憑證、gateway 不 import guardrails 引擎，所以 AWS 由 gateway 打。
+- **位置轉成 span**：先過門檻（`confidenceScore ≥ score_threshold`），再反查 entity id（§2.2 表），只留這個偵測器自己要求的 entity，然後當 `external_spans` 送進原本的 `POST /v1/guardrails/check`。
+- **sidecar 驗證後遮罩**：位置越界或 entity 不在選定集合 → 422 → gateway 記 `engine_error`。驗證過的 span 跟 regex span 合併，一次遮罩。
+- **只選 Bedrock 時**，sidecar 收到 `gliner_entities: []`，不呼叫 GLiNER。
+- **兩個偵測器都在時**（兩層各指名一個），GLiNER 只看 `gliner_pii` 那一組的 entities，結果與 Bedrock 聯集、只遮一次、代號照舊。2026-10-21 實測過：Bedrock 補上了 GLiNER 那組沒選的 `address`。
+- **位置以 Unicode code point 計**，跟 Python 字串索引、`PiiSpan.start/end` 同一個單位。實測過 😀 和 👨‍👩‍👧 之後的姓名位置都正確（INV-522-12）。
+- **送給 AWS 的 role 一律是 `user`**：PII 偵測跟角色無關。實測過 assistant 歷史和 tool_result 裡的個資都抓得到。
+
+**資料邊界**（C-219-55，改寫 INV-309-2）：
+- **出去的是什麼**：PII 原文只在生效政策有 `bedrock_pii` 時才離開部署範圍，出去的是**未遮罩**的條目原文。
+- **出去之前**：先跑跟 classifier 同一個 `vendor_call_block_source`（SPEC-223 C-223-55），三條腿：
+  - 部署 air gap（`XPARSE_ONPREM_ENFORCE`）；
+  - app 的 `profile_type` 不允許雲端（`on_prem`）；
+  - key 的 `data_egress=denied`。
+
+  任一成立 → 零連線、503，enforce 與 shadow 都一樣。
+- **實測（2026-10-21）**：
+  - `on_prem` app：503，audit 記 `pii_detector_boundary_blocked`，PII 檢查 0.14 ms，沒有 `guardrail_pii_detector_calls`。對照組 hybrid app 有呼叫 Bedrock，耗時 541 ms。
+  - `data_egress=denied` 的 key：同樣 503、零連線（0.11 ms）。
+- ⚠️ **key 的 `execution_boundary` 不是其中一條腿。** 那是 ADR-267 退場、Console 已不能設定的舊軸。實測 `execution_boundary: on_prem` 的 key 在 hybrid app 上，文字照樣送 AWS。2026-10-21 的決定是**不改**：要讓文字留在地端，就把 **app** 設成地端（`profile_type: on_prem`）。不要對客戶說「on_prem 的 key 不會出境」。
+
+**憑證**（ADR-522 §2.2.9；ADR-208 Amendment 12）：
+- **怎麼建**：provider `bedrock`、用途「Guardrail」、選 region。IAM 把 region 推導成 `https://bedrock-runtime.<region>.amazonaws.com` 存進 `ProviderCredential.endpoint`；Console 只送 region，不送網址。
+- **region**：允許清單只有 `ap-northeast-1`，其他 region 實測過才加。存下 endpoint 之後，這把 key 也被鎖在東京主機。
+- **政策怎麼指名**：用 spec 層的 `bedrock_credential_ref`（名稱）指名，PII 與 content 共用一把。
+- **gateway 撥號前的斷言**：IAM 投影 `resolved_bedrock_guardrail_credential`，gateway 撥號前再獨立斷言三件事：provider 是 `bedrock`、host 是允許 region 的 `bedrock-runtime`、狀態是 `resolved`。任一不成立 → 零連線、`engine_error`。
+- **沒有 region 的推論用 key**，投影狀態是 `no_endpoint`。
+
+**fold**：見 §2.4。PII 依 detector 分組、content 依 engine 分組；`bedrock_credential_ref` 上層釘了，下層換不掉。
+
+**content_filter 那一半**（`bedrock_content_safety`；SPEC-223 C-223-69..76）：
+
+| 項目 | 值 |
+|---|---|
+| 類別對應 | `hate→HATE`、`sexual→SEXUAL`、`violence→VIOLENCE`、`illegal_activity→MISCONDUCT` |
+| 不支援 | `self_harm` 沒有對應類別：只用 Bedrock 判時要求它，寫入時 400（C-223-44）。`INSULTS` 不請求，不硬併進 `hate` |
+| 分數 | AWS 只回六階 `severityScore`（0、0.2、0.4、0.6、0.8、1.0）；每個請求的類別每次都會回，0 分也有 |
+| 門檻切點 | `low ≥ 0.4`、`medium ≥ 0.6`、`high ≥ 0.8`。**暫定值、未校準**，Console 標「未校準」（`guardrails/bedrock.py` 的 `SEVERITY_CUTOFFS`） |
+| 判的文字 | 在信任邊界外，所以拿到的是送往 provider 的那份：PII enforce 時是遮罩後的（C-223-45），跟 Jev 一樣 |
+| 失敗 | 走 `on_failure`。資料邊界擋下記 `classifier_boundary_blocked` |
+| 逾時與斷路器 | content 單次 deadline `XPARSE_BEDROCK_GUARDRAIL_TIMEOUT_MS`（預設 3 s，夾 0.5–8 s）。每把憑證一個斷路器，只因逾時而跳（連續 3 次 → 開 30 秒） |
+
+實測：威脅句 451（violence 0.8、illegal_activity 0.6，門檻 medium）。兩層各用不同 engine 時各用自己的設定（Bedrock 判 4 類、OpenAI 只判 hate）；兩層都用 Bedrock 時只呼叫一次，類別聯集、門檻取最嚴。
+
+**計量**：每次真的打到 AWS 記一筆 count-only 的 ledger fact（producer `guardrail_bedrock`），不在 `CHARGEABLE_PRODUCERS`，不扣 token 配額與預算。AWS 的費用在租戶自己的 AWS 帳上；判決 memo 命中不記。實測 45 筆全是 0 token、0 units。
+
+**發佈狀態**：
+- **IAM 寫入**：2026-10-20 起以 pre-release `bedrock_guardrail`（stage DEV）扣住，只有 dev 能寫。
+- **畢業**：**#7021（2026-10-21）** 把它跟 Jev 一起畢業到所有部署，客戶安裝也看得到選項。
+- **還沒驗收**：繁中切點校準、共用 dev 環境的真 key 端到端。owner 決定先開放。
+- **部署順序**：sidecar → gateway → IAM → Console。#7021 的 IAM 和 Console 要一起上。
 
 ---
 
@@ -575,6 +732,23 @@ LiteLLM 把範圍做成四顆 rail 通用旋鈕（`skip_system_message_in_guardr
 
 部署序跟上面那批**相反**：Jev 是 **gateway → IAM → Console**（IAM 先上會讓政策寫得出 gateway 還不會跑的 engine → 每個請求 `classifier_unknown_engine`，而且那個碼目前回 451 不是 503，#5197）。
 
+### 3.9 AWS Bedrock 的缺口與要注意的事（2026-10-21）
+
+> 按嚴重度排。Bedrock 怎麼運作見 §2.9。
+
+| 級別 | 項目 | 現在會發生什麼 |
+|---|---|---|
+| 🟠 | **未遮罩的原文會出境**（設計如此，選用） | 選了 Bedrock 的政策，每個條目的原文都送到 AWS 東京。要擋只有三條路：app 設成 `on_prem`、key 設 `data_egress=denied`、部署設 `XPARSE_ONPREM_ENFORCE`。key 的 `execution_boundary` **擋不住**（§2.9）。客戶若把「有 PII 遮罩」理解成「原文不出境」，選 Bedrock 時這個理解就錯了；Console 有揭露文字，業務也要講。 |
+| 🟠 | **沒驗收就畢業** | #7021 把它開放到 rel、prod 與客戶安裝，但兩項驗收還沒做：<br>• 繁中切點校準：content 的 0.4／0.6／0.8 是暫定值；<br>• 共用 dev 環境的真 key 端到端：只在 Peter 本機 stack 跑過。<br>PII 那一半也沒有繁中評測集。`passport` 對的是 `US_PASSPORT_NUMBER`，台灣護照號碼沒有實測。文案紅線：不得寫「更準／更安全／更適合中文」。 |
+| 🟠 | **AWS 429 → 該租戶 enforce 全部 503** | 配額是每個帳號、每個 region 1,500 RPM，跟同帳號的推論共用。fail-closed 是對的（INV-522-1），但租戶會以為是我們壞了。導入前先在 shadow 量用量（§2.5）。 |
+| 🟡 | **開了跨副本協調的 gateway 一律拒絕 Bedrock PII** | 設了 `XPARSE_COORDINATION_REDIS_URL`（SPEC-289）的 gateway 會直接回 `engine_error` 503、零連線。原因是 PII rail 在 admission 之前跑，那時還沒有 root permit，這次外呼不在任何 permit 底下，作法跟 NemoGuard arm 一樣（`pii_detectors.py` 的 `_coordinated`）。content arm 不受影響。**rel 與 prod 目前都是 single-active、沒設這個值**（`deploy/ec2/envs/xparse-{rel,prod}.env`），所以今天沒事；哪天開多副本協調，選了 Bedrock PII 的租戶會全部 503。 |
+| 🟡 | **四類只靠 regex** | `national_id`、`birthdate`、`gender`、`messaging_id` 是 Bedrock 偵測不到的，只剩 §2.2 的 regex 那一欄。只選 Bedrock 的政策，這四類的語意偵測等於沒有。 |
+| 🟡 | **`/ready` 仍要求 GLiNER** | 只選 Bedrock 的政策不會呼叫 GLiNER，但 sidecar 的 `/ready` 還是要 GLiNER 活著。雲端部署還拿不掉 air520 那台（ADR-522 §5.2，另案）。 |
+| 🟡 | **生效政策的舊單值 `engine` 可能跟實際偵測器不同** | 例如一層 PII 關閉（`gliner_pii`）、另一層是 `bedrock_pii` 時，單值顯示 `gliner_pii`，但 `pii.detectors` 是 `[bedrock_pii]`。新 gateway 以 `detectors` 為準，行為正確；只有讀單值欄位的地方會顯示不一致（2026-10-21 實測發現）。 |
+| 🟡 | **依 engine 合併改變了既有多判官 bundle 的實際執行** | PR-10（#6969）沒先跑盤點就 merge（Peter 決定）。只影響「不同層各自指定不同 content evaluator、而且設定不同」的 bundle。部署含 PR-10 的 IAM 到 dev／rel／prod 之前，先跑唯讀的 `inventory_guardrail_engine_configs` 看受影響的單位（§2.4）。 |
+| 🟡 | **沒有實機測到、只靠假 server 測試的路徑** | 有六條：<br>• GLiNER 停掉；<br>• 部署 air gap；<br>• AWS 429／5xx／逾時；<br>• `truncated`；<br>• endpoint 不是 Bedrock 主機；<br>• 位置越界。<br>`on_prem` app 與 `data_egress=denied` 的 key 有實測（§2.9）。 |
+| ⚪ | **輸出側照舊沒有 PII 遮罩** | Bedrock 的 content arm 可以判 output stage，但 PII 的 `check_output` 仍是 pass-through（§3.2）。Bedrock 沒有改變這一點。 |
+
 ---
 
 ## 4. 五條別再走的死路
@@ -694,3 +868,9 @@ docker run --rm -i --network xparse-network --entrypoint /opt/xparse/gateway/ven
 | `docs/adr/ADR-389-guardrail-word-filters-deterministic-rail.md` | matcher 演算法、rail 組合、span 優先權、fold、投影遮蔽；擁有 INV-389-*（**Accepted**，2026-09-17 #4951；INV-389-4 Rev） |
 | `docs/spec/SPEC-224-guardrail-word-filters-contract.md` | word filters 行為契約：§1.1 寫入驗證、§4.2 normative 正規化、§4.3 偵測面 vs 改寫面（**C-224-32 在 main 上已過時，見 §2.8**）、§5 verdict/audit、C-224-54 legacy 投影；**2026-09-17 Rev（#4951）**：C-224-32 改為 as built（block 面含工具參數 JSON 解碼葉值、mask 面 = 最後一則 + 寬面較早輪次、system 依 policy 層 `scan_system`）+ C-224-32b（Responses `function_call*`） |
 | `docs/research/RESEARCH-custom-term-redaction-real-requirements-2026-07-12.md` | word filters 的需求查證（列清單型防護的天生弱點、業界對照） |
+| `docs/prd/PRD-375-bedrock-guardrail-engine-content-and-pii.md` | **Bedrock 當 PII 語意層與 content_filter 判定來源（2026-10-20）**：what & why、§4 驗收（I／N 系列）、U8 文案紅線、§3.8 畢業條件與 2026-10-21 owner 修訂 |
+| `docs/adr/ADR-522-bedrock-guardrail-engine-and-per-engine-fold.md` | 怎麼做：`InvokeGuardrailChecks` 加外部 span、§2.2.2 對應表、§2.2.6 gateway 偵測 runtime、§2.2.8 依 engine 合併、§2.2.9 憑證與 region、§7.3 實測紀錄；INV-522-1..13；改寫 ADR-309 INV-309-2 |
+| `docs/spec/SPEC-219-guardrail-pii-v1-contract.md` **Rev.13–15** | C-219-50（依 engine 合併）· 51（external spans）· 52（gateway runtime）· 53（失敗對映）· 54（快取）· 55（資料邊界，改寫 INV-309-2）· 56（寫入；Rev.14 偵測器跟著 Engine 走、Rev.15 畢業） |
+| `docs/spec/SPEC-223-guardrail-v2-contract.md` C-223-69..76 | Bedrock content arm：類別、六階分數、切點、憑證投影、傳輸層、Test 路由 |
+| `docs/research/RESEARCH-bedrock-guardrail-checks-probe-2026-10-20.md` | 東京真 API 實測：位置以 code point 計、回應形狀、為什麼不用 `ApplyGuardrail` |
+| `~/Desktop/testing/bedrock-guardrail-2026-10-21/REPORT.md` | 本機 stack 的真元件測試（S0–S13、I 系列、三個入口、三個 agent CLI、on_prem app、畢業後以 prod 標籤跑的 E2E） |
