@@ -6,7 +6,7 @@
 > - **§0 那句「原文不出境」從此只對 GLiNER 成立。** 選 Bedrock 的政策會把**未遮罩的原文**送到 AWS——要找出個資在哪裡，就得送原文。INV-309-2 改寫成「選用，且出境前先過資料邊界閘」（C-219-55）：地端 app（`profile_type: on_prem`）、`data_egress=denied` 的 key、設了 `XPARSE_ONPREM_ENFORCE` 的部署 → 零連線、503，shadow 也一樣零連線。regex 層與遮罩仍在地端 sidecar，`mask_text` 仍是唯一產生代號的地方。
 > - **Bedrock 偵測不到四類**：`national_id`、`birthdate`、`gender`、`messaging_id` 只靠 regex，Console 標「僅限地端比對」。
 > - **fold 改依 engine 分組**（`pii.detectors[]`，最多兩組）：兩層指名不同偵測器時兩個都跑、結果聯集、只遮一次；同一個偵測器跨層照舊（entities 聯集、門檻取最低）。content_filter 的設定也改依 engine 合併。
-> - **PR**：#6900（PRD-375／ADR-522）→ #6901、#6904（憑證）→ #6958–#6961、#6964–#6966、#6969、#6972、#6973（IAM、sidecar、gateway）→ #6974、#6975、#6977、#6978（Console），全部已 merge。**#7021 把 Bedrock 和 Jev 從 pre-release 畢業到所有部署**（rel、prod、客戶安裝都算）。**尚無環境部署**，目前只在 Peter 本機 stack 跑過。
+> - **PR**：#6900（PRD-375／ADR-522）→ #6901、#6904（憑證）→ #6958–#6961、#6964–#6966、#6969、#6972、#6973（IAM、sidecar、gateway）→ #6974、#6975、#6977、#6978（Console），全部已 merge。**#7021 把 Bedrock 和 Jev 從 pre-release 畢業到所有部署**（rel、prod、客戶安裝都算；2026-10-21 merge，`915aff71a`）。**尚無環境部署**，目前只在 Peter 本機 stack 跑過。
 > - **實測（2026-10-21，本機 stack、真 AWS）**：「陳大文／手機／email」遮成 `[NAME_…]`／`[PHONE_…]`／`[EMAIL_…]`，身分證由 regex 遮；威脅句 451（violence 0.8）；`on_prem` app 回 503、PII 檢查 0.14 ms、零 AWS 呼叫。報告在 `~/Desktop/testing/bedrock-guardrail-2026-10-21/REPORT.md`。
 > - **還沒做的**：繁中校準語料（content 的 0.4／0.6／0.8 切點是暫定值）、在共用 dev 環境用真 key 跑端到端。見 §3.9。
 >
@@ -460,7 +460,7 @@ PII rail 管「有格式或語意特徵、但你列不出來的值」；**word f
 
 **發佈狀態**：
 - **IAM 寫入**：2026-10-20 起以 pre-release `bedrock_guardrail`（stage DEV）扣住，只有 dev 能寫。
-- **畢業**：**#7021（2026-10-21）** 把它跟 Jev 一起畢業到所有部署，客戶安裝也看得到選項。
+- **畢業**：**#7021（2026-10-21 merge，`915aff71a`）** 把它跟 Jev 一起畢業到所有部署，客戶安裝也看得到選項。
 - **還沒驗收**：繁中切點校準、共用 dev 環境的真 key 端到端。owner 決定先開放。
 - **部署順序**：sidecar → gateway → IAM → Console。#7021 的 IAM 和 Console 要一起上。
 
@@ -746,7 +746,11 @@ LiteLLM 把範圍做成四顆 rail 通用旋鈕（`skip_system_message_in_guardr
 | 🟡 | **`/ready` 仍要求 GLiNER** | 只選 Bedrock 的政策不會呼叫 GLiNER，但 sidecar 的 `/ready` 還是要 GLiNER 活著。雲端部署還拿不掉 air520 那台（ADR-522 §5.2，另案）。 |
 | 🟡 | **生效政策的舊單值 `engine` 可能跟實際偵測器不同** | 例如一層 PII 關閉（`gliner_pii`）、另一層是 `bedrock_pii` 時，單值顯示 `gliner_pii`，但 `pii.detectors` 是 `[bedrock_pii]`。新 gateway 以 `detectors` 為準，行為正確；只有讀單值欄位的地方會顯示不一致（2026-10-21 實測發現）。 |
 | 🟡 | **依 engine 合併改變了既有多判官 bundle 的實際執行** | PR-10（#6969）沒先跑盤點就 merge（Peter 決定）。只影響「不同層各自指定不同 content evaluator、而且設定不同」的 bundle。部署含 PR-10 的 IAM 到 dev／rel／prod 之前，先跑唯讀的 `inventory_guardrail_engine_configs` 看受影響的單位（§2.4）。 |
-| 🟡 | **沒有實機測到、只靠假 server 測試的路徑** | 有六條：<br>• GLiNER 停掉；<br>• 部署 air gap；<br>• AWS 429／5xx／逾時；<br>• `truncated`；<br>• endpoint 不是 Bedrock 主機；<br>• 位置越界。<br>`on_prem` app 與 `data_egress=denied` 的 key 有實測（§2.9）。 |
+| 🟠 | **shadow 的 preview 遇到資料邊界擋下時回 `degraded:false`**（2026-10-21 真元件實測發現） | 這違反 SPEC-219 C-219-24。air gap 下 shadow 政策的 `/v1/guardrails/preview` 回 200，沒遮罩、也沒標 degraded，看起來像「沒偵測到個資」。原因是 `routes/guardrails.py:36-38` 自己那份 fail-closed 清單漏了 `pii_detector_boundary_blocked`。chat 路徑沒問題（shadow 本來就照轉原文）。 |
+| 🟠 | **單則超過 100,000 字元必定 503，訊息卻叫人「Retry shortly」**（2026-10-21 實測） | AWS 的上限以字元計算：100,000 字元可以過，100,001 字元回 400 → `engine_error` 503。中文 40k 字元（120 KB）可以過。這是確定性的失敗，重試永遠不會成功，agent client 會一直重試。建議比照 C-223-17 在本地先擋：零連線、回 451 加「請縮短」的訊息。相關程式：`pii_detectors.py:327-331`（所有非 200 一律當 engine_error）、`:379-404`（太大的條目單獨送、不切分）。 |
+| 🟡 | **PII 的邊界來源沒進 audit**（2026-10-21 實測） | audit 只記 `pii_detector_boundary_blocked`，看不出是三條腿的哪一條擋的；content arm 有記 `classifier_boundary_source`。SPEC-219 C-219-53 的 shadow 列與 ADR-522 §2.2.11 都要求記。原因是 `guardrail_enforcer.py:665-672` 丟掉了 `exc.boundary_source`，`pii_detectors.py:277` 其實有設。 |
+| 🟡 | **中文姓名偵測不穩** | 「陳大文」抓得到，「林小美」三次都沒抓到。只選 Bedrock 的政策，非介紹句型的中文姓名可能漏掉；regex 層只認介紹句型（§2.2）。這是「繁中沒有評測集」那一列的具體例子。 |
+| 🟡 | **已用真元件觸發過的錯誤路徑**（2026-10-21，`~/Desktop/testing/bedrock-guardrail-2026-10-21/error-paths/REPORT.md`） | 以下都符合 SPEC-219 C-219-53／SPEC-223 C-223-74：<br>• `truncated`（超過 AWS 1,000 筆）→ 451，不進快取；<br>• 超過 100k 字元 → 503；<br>• PII 與 content 逾時 → 503，連續 3 次後斷路器打開，30 秒後恢復；<br>• GLiNER 停掉時只選 Bedrock 的政策照常遮罩；<br>• air gap 零連線 503；<br>• 320 個並發請求觸發 AWS 429 ×124，回 503，斷路器沒開、失敗不進快取；<br>• 順帶碰到 AWS 500 四次，回 503。<br>仍然只有假 server 測試的：AWS 回格式錯誤、連線層重試、401／403、content arm 的 429、`_coordinated`。 |
 | ⚪ | **輸出側照舊沒有 PII 遮罩** | Bedrock 的 content arm 可以判 output stage，但 PII 的 `check_output` 仍是 pass-through（§3.2）。Bedrock 沒有改變這一點。 |
 
 ---
