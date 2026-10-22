@@ -464,7 +464,7 @@ PII rail 管「有格式或語意特徵、但你列不出來的值」；**word f
 **發佈狀態**：
 - **IAM 寫入**：2026-10-20 起以 pre-release `bedrock_guardrail`（stage DEV）扣住，只有 dev 能寫。
 - **畢業**：**#7021（2026-10-21 merge，`915aff71a`）** 把它跟 Jev 一起畢業到所有部署，客戶安裝也看得到選項。
-- **還沒驗收**：繁中切點的 held-out 題組（2026-10-22 已跑第一輪 dev set，見 §3.9）、中文姓名偵測率、共用 dev 環境的真 key 端到端。owner 決定先開放。
+- **還沒驗收**：繁中切點的 held-out 題組（2026-10-22 已跑第一輪 dev set，見 §3.9）、共用 dev 環境的真 key 端到端。owner 決定先開放。
 - **部署順序**：sidecar → gateway → IAM → Console。#7021 的 IAM 和 Console 要一起上。
 
 ---
