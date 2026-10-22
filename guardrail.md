@@ -8,7 +8,8 @@
 > - **fold 改依 engine 分組**（`pii.detectors[]`，最多兩組）：兩層指名不同偵測器時兩個都跑、結果聯集、只遮一次；同一個偵測器跨層照舊（entities 聯集、門檻取最低）。content_filter 的設定也改依 engine 合併。
 > - **PR**：#6900（PRD-375／ADR-522）→ #6901、#6904（憑證）→ #6958–#6961、#6964–#6966、#6969、#6972、#6973（IAM、sidecar、gateway）→ #6974、#6975、#6977、#6978（Console），全部已 merge。**#7021 把 Bedrock 和 Jev 從 pre-release 畢業到所有部署**（rel、prod、客戶安裝都算；2026-10-21 merge，`915aff71a`）。**尚無環境部署**，目前只在 Peter 本機 stack 跑過。
 > - **實測（2026-10-21，本機 stack、真 AWS）**：「陳大文／手機／email」遮成 `[NAME_…]`／`[PHONE_…]`／`[EMAIL_…]`，身分證由 regex 遮；威脅句 451（violence 0.8）；`on_prem` app 回 503、PII 檢查 0.14 ms、零 AWS 呼叫。報告在 `~/Desktop/testing/bedrock-guardrail-2026-10-21/REPORT.md`。
-> - **還沒做的**：繁中校準語料（content 的 0.4／0.6／0.8 切點是暫定值）、在共用 dev 環境用真 key 跑端到端。見 §3.9。
+> - **還沒做的**：繁中校準的 held-out 驗收題組、中文姓名偵測率、在共用 dev 環境用真 key 跑端到端。見 §3.9。
+> - **2026-10-22 第一輪校準（dev set，153 題）**：0.4／0.6／0.8 維持不變，`medium` 已是最佳值（145/153）。報告 `~/Desktop/testing/bedrock-guardrail-2026-10-21/calibration/REPORT.md`。
 > - **錯誤路徑實測與修正（2026-10-21）**：用真元件觸發了截斷、逾時與斷路器、GLiNER 停掉、air gap、AWS 429，行為都符合 spec。另外找到三個問題，修正在 PR #7039（2026-10-21 已 merge，`ef9c06ea0`）。另有兩個後續項目，見 §3.9：Console 稽核頁有沒有名稱的列、shadow preview 的 `degraded` 語意。報告在 `~/Desktop/testing/bedrock-guardrail-2026-10-21/error-paths/` 與 `error-path-fixes/`。
 >
 > **2026-09-29 更新（PII 這條 rail 的 fold 改了一條，[#5443](https://github.com/futurenestit/xparse/pull/5443) 已 merge main，本地 dev 實測：停用層的 phone 不再被遮）**：下一段提到「`pii` 與 `word_filters` 理論上有同一種漏法」——**實測證實且已修**：某層 `pii: {enabled: false, entities: [phone], score_threshold: 0.4}` 以前會把 `phone` 與 0.4 聯進生效政策（實跑真的遮 phone）；現在停用的 `pii` 區塊是 fold identity（不貢獻 `entities`、門檻取 1.0 的 identity），只有 `enabled` 仍是 OR（SPEC-219 **C-219-49**，ADR-476 Amendment H）。`word_filters` 同步（SPEC-224 C-224-21）。policy-level `scan_system` 不受影響。部署時對靠停用層漏進來的 entity 是一次放寬。
@@ -450,7 +451,7 @@ PII rail 管「有格式或語意特徵、但你列不出來的值」；**word f
 | 類別對應 | `hate→HATE`、`sexual→SEXUAL`、`violence→VIOLENCE`、`illegal_activity→MISCONDUCT` |
 | 不支援 | `self_harm` 沒有對應類別：只用 Bedrock 判時要求它，寫入時 400（C-223-44）。`INSULTS` 不請求，不硬併進 `hate` |
 | 分數 | AWS 只回六階 `severityScore`（0、0.2、0.4、0.6、0.8、1.0）；每個請求的類別每次都會回，0 分也有 |
-| 門檻切點 | `low ≥ 0.4`、`medium ≥ 0.6`、`high ≥ 0.8`。**暫定值、未校準**，Console 標「未校準」（`guardrails/bedrock.py` 的 `SEVERITY_CUTOFFS`） |
+| 門檻切點 | `low ≥ 0.4`、`medium ≥ 0.6`、`high ≥ 0.8`（`guardrails/bedrock.py` 的 `SEVERITY_CUTOFFS`），Console 標「未校準」。2026-10-22 第一輪 dev set 校準後維持不變：`medium` 最佳；`low` 0.4 漏掉大部分輕度題，改 0.2 會多誤擋無害題；`high` 在 0.8 與 level 2 重疊，改 1.0 會漏擋 11/33 題嚴重題。還不是驗收證據 |
 | 判的文字 | 在信任邊界外，所以拿到的是送往 provider 的那份：PII enforce 時是遮罩後的（C-223-45），跟 Jev 一樣 |
 | 失敗 | 走 `on_failure`。資料邊界擋下記 `classifier_boundary_blocked` |
 | 逾時與斷路器 | content 單次 deadline `XPARSE_BEDROCK_GUARDRAIL_TIMEOUT_MS`（預設 3 s，夾 0.5–8 s）。每把憑證一個斷路器，只因逾時而跳（連續 3 次 → 開 30 秒） |
@@ -462,7 +463,7 @@ PII rail 管「有格式或語意特徵、但你列不出來的值」；**word f
 **發佈狀態**：
 - **IAM 寫入**：2026-10-20 起以 pre-release `bedrock_guardrail`（stage DEV）扣住，只有 dev 能寫。
 - **畢業**：**#7021（2026-10-21 merge，`915aff71a`）** 把它跟 Jev 一起畢業到所有部署，客戶安裝也看得到選項。
-- **還沒驗收**：繁中切點校準、共用 dev 環境的真 key 端到端。owner 決定先開放。
+- **還沒驗收**：繁中切點的 held-out 題組（2026-10-22 已跑第一輪 dev set，見 §3.9）、中文姓名偵測率、共用 dev 環境的真 key 端到端。owner 決定先開放。
 - **部署順序**：sidecar → gateway → IAM → Console。#7021 的 IAM 和 Console 要一起上。
 
 ---
@@ -740,7 +741,7 @@ LiteLLM 把範圍做成四顆 rail 通用旋鈕（`skip_system_message_in_guardr
 | 級別 | 項目 | 現在會發生什麼 |
 |---|---|---|
 | 🟠 | **未遮罩的原文會出境**（設計如此，選用） | 選了 Bedrock 的政策，每個條目的原文都送到 AWS 東京。要擋只有三條路：app 設成 `on_prem`、key 設 `data_egress=denied`、部署設 `XPARSE_ONPREM_ENFORCE`。key 的 `execution_boundary` **擋不住**（§2.9）。客戶若把「有 PII 遮罩」理解成「原文不出境」，選 Bedrock 時這個理解就錯了；Console 有揭露文字，業務也要講。 |
-| 🟠 | **沒驗收就畢業** | #7021 把它開放到 rel、prod 與客戶安裝，但兩項驗收還沒做：<br>• 繁中切點校準：content 的 0.4／0.6／0.8 是暫定值；<br>• 共用 dev 環境的真 key 端到端：只在 Peter 本機 stack 跑過。<br>PII 那一半也沒有繁中評測集。`passport` 對的是 `US_PASSPORT_NUMBER`，台灣護照號碼沒有實測。文案紅線：不得寫「更準／更安全／更適合中文」。 |
+| 🟠 | **沒驗收就畢業** | #7021 把它開放到 rel、prod 與客戶安裝，但兩項驗收還沒做：<br>• 繁中切點校準：2026-10-22 跑了第一輪 dev set（DeepSeek 產的 153 題，`~/Desktop/testing/bedrock-guardrail-2026-10-21/calibration/REPORT.md`），結論是 0.4／0.6／0.8 維持；但題目與 level 不是人工標的，還需要另一個人出的 held-out 題組才算驗收；<br>• 共用 dev 環境的真 key 端到端：只在 Peter 本機 stack 跑過。<br>PII 那一半也沒有繁中評測集。`passport` 對的是 `US_PASSPORT_NUMBER`，台灣護照號碼沒有實測。文案紅線：不得寫「更準／更安全／更適合中文」。 |
 | 🟠 | **AWS 429 → 該租戶 enforce 全部 503** | 配額是每個帳號、每個 region 1,500 RPM，跟同帳號的推論共用。fail-closed 是對的（INV-522-1），但租戶會以為是我們壞了。導入前先在 shadow 量用量（§2.5）。 |
 | 🟡 | **開了跨副本協調的 gateway 一律拒絕 Bedrock PII** | 設了 `XPARSE_COORDINATION_REDIS_URL`（SPEC-289）的 gateway 會直接回 `engine_error` 503、零連線。原因是 PII rail 在 admission 之前跑，那時還沒有 root permit，這次外呼不在任何 permit 底下，作法跟 NemoGuard arm 一樣（`pii_detectors.py` 的 `_coordinated`）。content arm 不受影響。**rel 與 prod 目前都是 single-active、沒設這個值**（`deploy/ec2/envs/xparse-{rel,prod}.env`），所以今天沒事；哪天開多副本協調，選了 Bedrock PII 的租戶會全部 503。 |
 | 🟡 | **四類只靠 regex** | `national_id`、`birthdate`、`gender`、`messaging_id` 是 Bedrock 偵測不到的，只剩 §2.2 的 regex 那一欄。只選 Bedrock 的政策，這四類的語意偵測等於沒有。 |
