@@ -676,7 +676,7 @@ G2–G4 從 P9 之後沒改過。G1 由 #6446 擴大掃描範圍：加入 `produ
 
 - **messages 的回應側仍經 chat core 重建**：上游回的 block 經 builder 輸出，回應側的原生串流依 ADR-503 延後。#6290 之後 Claude 自己的 `stop_reason`／`stop_sequence` 走 side channel 帶回。#6315 用 trace 把 server block 與 citations 依上游順序原樣插回（`hosted_blocks.py::rebuild_hosted`），但這仍不是原生回應串流。
 - **`/v1/messages` 的文字**：#6475（ADR-239 Amendment C，SPEC-312 C-312-64）起，chat core 宣告這次嘗試是 append-only 才逐段送出。條件全部成立才算：routing mode 是 `fast_only`／`large_only`、output rail 不是 buffer、沒有 Tool 規則、沒有 hosted web 工具、出口 wire 是 `openai_chat` 或 `openai_responses`、模型不是 Claude（看模型名稱，所以 Bedrock／Vertex 上的 Claude 也算在內）。其餘情況（包括所有 Claude）仍是回合結束才一次送到，生成期間只有每 15 秒一個 `ping`（#6329）。10-14 實測：指名 gpt-5.6-luna 時 3.4 秒出現第一個字；Claude 仍是 21 秒才一次到（10-12 實測 gateway 2.6 秒拿到第一個 token，client 21.6 秒才看到字）。Claude 要逐段，得先有真元件證據，而且 messages 回應側的原生串流仍延後。
-- **`/v1/responses` 一律回 SSE**：client 送 `stream: false` 也一樣（ADR-339／ADR-437）。OpenAI SDK 的非串流用法與 `responses.parse()` 不能用，Codex 不受影響。非串流收集器還沒開工。
+- ~~**`/v1/responses` 一律回 SSE**~~（2026-10-17 起不成立，10-23 更正）：#6730（ADR-339 Amendment B、SPEC-282 Rev.36、SPEC-234 C-234-14）之後，沒帶 `"stream": true` 的請求回一個 JSON `Response`，OpenAI SDK 的非串流用法可以用。10-23 本地實測：`stream: false` 回 `{"object": "response", ...}`。
 - **串流時上游 4xx 變成 HTTP 200 加一個 SSE error**：Claude Code「`encrypted_content` 解密失敗就剝掉重試」要求 `status===400`，經 Xparse 永遠不會觸發。`encrypted_content` 跨 credential／模型能否重送（A-10）也未驗證。
   - 200 改不了：串流一開始就先送 keepalive（`sse_transport.py`），否則 ingress 會斷線；要等第一個事件才開串流是另一個 wire 決定（SPEC-282 RSP-RES-8）。
   - chat 的錯誤 frame 之後**不送 `data: [DONE]`**，是規格寫明的（EVENT_STREAM_SPEC §8.2、SPEC-304 C-304-147）。例外：排隊中被拒（queued admission）的兩個出口會送 `[DONE]`（`routes/chat.py:2629`、`:2640`）。`/v1/messages` 送 `event: error`、不送 `message_stop`（同 Anthropic 原生）；`/v1/responses` 送 `response.failed`（RSP-TERM-1）。
