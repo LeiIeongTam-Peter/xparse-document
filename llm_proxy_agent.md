@@ -812,7 +812,7 @@ G2–G4 從 P9 之後沒改過。G1 由 #6446 擴大掃描範圍：加入 `produ
 - **session 升級只升不降**（ADR-447，owner 10-12 決定維持）：判高一次就留在較強的模型。judge 對同一句話的判定不穩（10-12 實測 Claude Code 三分之一的迴圈判出不同級），兩者相加，session 會被推到最貴的模型。
 - **輔助請求**（permission classifier、標題、摘要、compaction）跟著 session 釘住的模型：owner 已決定要做，還沒開工。
 - judge 判不出來的那一輪不寫 pin；一旦發生 failover，session 會被釘在備援模型上（10-12 報告 §3.2，修正後沒重驗）。
-- 已知壞掉的模型仍不會被排除在自動路由之外，resolver 不讀健康分數。#6459 起，自動路由選到 breaker 開著的模型時，會累加 `xparse_gateway_routing_breaker_open_selected_total{endpoint}`，只計數、不改決策。每個請求都回 4xx 的模型（operator 設錯）也不會被標成不健康（#6362）。
+- 已知壞掉的模型仍不會被排除在自動路由之外，resolver 不讀健康分數。#6459 起，自動路由選到 breaker 開著的模型時，會累加 `xparse_gateway_routing_breaker_open_selected_total{endpoint}`，只計數、不改決策。每個請求都回 4xx 的模型（operator 設錯）也不會被標成不健康（#6362）。**2026-10-23 #7170 起**（ADR-321 Amendment C、SPEC-276 Rev.23）：5 分鐘內被 provider 拒絕 ≥10 次、比例 ≥90%、來自 ≥2 把不同 key 的模型會被排除在自動路由之外，300 秒後自動恢復；健康分數與 breaker 不變（INV-447-34），只有一把 key 的 tenant 不會觸發。計數器 `xparse_gateway_routing_reliability_excluded_total{endpoint, model_id, reason}`。
 - 不在 pool 的模型名仍是 404／400，沒有別名（Claude Code 只設 base URL 與 key 時送 `claude-opus-5-5`，第一個請求就失敗）。#6453 起訊息會指路：把 model 設成 application code（或 `"default"`，chat 也可以省略），`GET /v1/models` 列出可用的名稱。但 Claude Code 會把 404 換成自己的通用訊息，使用者看不到這段指路（10-14 實測）。設定方式見 `docs/runbooks/agent-cli-setup.md`。
 - 原生優先指的是本面候選，不是 wire 相同（§1.4）：Claude Code 用自動路由時不會偏好 Claude。
 - Claude Code 被路由到 OpenAI 系模型時，billing 行仍是送往上游的 system 第一行，`/compact` 後上游的自動 prefix cache 會失效（#6356 沒處理）。
