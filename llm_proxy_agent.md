@@ -678,6 +678,18 @@ G2–G4 從 P9 之後沒改過。G1 由 #6446 擴大掃描範圍：加入 `produ
 - **`/v1/messages` 的文字**：#6475（ADR-239 Amendment C，SPEC-312 C-312-64）起，chat core 宣告這次嘗試是 append-only 才逐段送出。條件全部成立才算：routing mode 是 `fast_only`／`large_only`、output rail 不是 buffer、沒有 Tool 規則、沒有 hosted web 工具、出口 wire 是 `openai_chat` 或 `openai_responses`、模型不是 Claude（看模型名稱，所以 Bedrock／Vertex 上的 Claude 也算在內）。其餘情況（包括所有 Claude）仍是回合結束才一次送到，生成期間只有每 15 秒一個 `ping`（#6329）。10-14 實測：指名 gpt-5.6-luna 時 3.4 秒出現第一個字；Claude 仍是 21 秒才一次到（10-12 實測 gateway 2.6 秒拿到第一個 token，client 21.6 秒才看到字）。Claude 要逐段，得先有真元件證據，而且 messages 回應側的原生串流仍延後。
 - **`/v1/responses` 一律回 SSE**：client 送 `stream: false` 也一樣（ADR-339／ADR-437）。OpenAI SDK 的非串流用法與 `responses.parse()` 不能用，Codex 不受影響。非串流收集器還沒開工。
 - **串流時上游 4xx 變成 HTTP 200 加一個 SSE error**：Claude Code「`encrypted_content` 解密失敗就剝掉重試」要求 `status===400`，經 Xparse 永遠不會觸發。`encrypted_content` 跨 credential／模型能否重送（A-10）也未驗證。
+  - 200 改不了：串流一開始就先送 keepalive（`sse_transport.py`），否則 ingress 會斷線；要等第一個事件才開串流是另一個 wire 決定（SPEC-282 RSP-RES-8）。
+  - chat 的錯誤 frame 之後**不送 `data: [DONE]`**，是規格寫明的（EVENT_STREAM_SPEC §8.2、SPEC-304 C-304-147）。例外：排隊中被拒（queued admission）的兩個出口會送 `[DONE]`（`routes/chat.py:2629`、`:2640`）。`/v1/messages` 送 `event: error`、不送 `message_stop`（同 Anthropic 原生）；`/v1/responses` 送 `response.failed`（RSP-TERM-1）。
+  - 其他平台沒有共識（2026-10-23 讀原始碼）：Bifrost 刻意不送 `[DONE]`（#5546）；vLLM、NeMo Guardrails 一律補 `[DONE]`；LiteLLM 兩種都有。client 要看 `data:` 裡有沒有 `error`，不能把 `[DONE]` 當成成功。owner 10-23 決定不改。
+- **同一個拒絕，`/v1/responses` 的狀態碼和另外兩面不同**（owner 10-23 決定不改，aiap02p 測試報告 #10、#17）：
+
+  | 情況 | chat | messages | responses | 依據 |
+  |---|---|---|---|---|
+  | 模型名不在 pool | 404 `model_not_found` | 404 | **400** | ADR-437 Amendment E（INV-437-20）、SPEC-282 RSP-ADDR-1 |
+  | guardrail 擋下（請求端） | 451 | 451 | **400** | ADR-437 Amendment A、SPEC-282 RSP-IN-1／RSP-IN-3 |
+  | 串流開始後才擋 | 200 + SSE error | 200 + `event: error` | 200 + `response.failed`（`invalid_prompt`） | RSP-TERM-1 |
+
+  原因：Codex 只把 400、429 當成不重試的錯誤，404／451 會被重試 5 次。轉換點只有一個：`responses_terminals.py::as_responses_refusal_status`。參考平台也沒有統一的做法：LiteLLM 未知模型三面都是 400、無權限 403、guardrail 預設 400；Portkey guardrail 446；OpenAI 自己未知模型回 404。
 - `/v1/messages` 串流中的 gateway 逾時仍標成 `overloaded_error`，Claude Code 會當成可重試（#6348 沒處理）。
 - 工具呼叫的參數仍在呼叫結束時一次送給 client，不逐段串流。
 - `/v1/messages` 串流的 `output_tokens` 從 #6475 起是 provider 的數（SPEC-312 C-312-65；agent mode 仍是估算）。`input_tokens` 與快取欄位只在請求帶 `cache_control` 時出現在 `message_delta.usage`；沒帶時 client 拿不到真實的 input 數（10-14 實測 client 看到的 `input_tokens` 是 0）。Claude Code 的主要請求有帶，不受影響。
